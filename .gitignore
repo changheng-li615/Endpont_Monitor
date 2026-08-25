@@ -1,0 +1,19 @@
+# Build output
+**/bin/
+**/obj/
+.vs/
+TestResults/
+
+# Local SDK/NuGet state used by sandboxed development
+.artifacts/
+.packages/
+
+# Local monitoring data and development overrides
+data/
+**/data/
+appsettings.Local.json
+
+# User-specific IDE files
+*.user
+*.suo
+

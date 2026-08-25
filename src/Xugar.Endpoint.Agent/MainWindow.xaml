@@ -1,0 +1,120 @@
+<Window x:Class="Xugar.Endpoint.Agent.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Xugar Endpoint Monitor"
+        Height="520"
+        Width="760"
+        MinHeight="480"
+        MinWidth="680"
+        WindowStartupLocation="CenterScreen"
+        Background="#F4F7FB">
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="18" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="24" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="24" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock FontSize="28"
+                       FontWeight="SemiBold"
+                       Foreground="#183153"
+                       Text="Xugar Endpoint Monitor" />
+            <TextBlock Margin="0,7,0,0"
+                       FontSize="14"
+                       Foreground="#4F6074"
+                       Text="Visible, local-only monitoring prototype" />
+        </StackPanel>
+
+        <Border Grid.Row="2"
+                Padding="16,12"
+                Background="White"
+                BorderBrush="#D9E2EC"
+                BorderThickness="1"
+                CornerRadius="8">
+            <DockPanel>
+                <Ellipse x:Name="StatusIndicator"
+                         Width="13"
+                         Height="13"
+                         Margin="0,0,10,0"
+                         Fill="#8A99A8" />
+                <TextBlock x:Name="StatusText"
+                           VerticalAlignment="Center"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Foreground="#263746"
+                           Text="Starting…" />
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="4"
+                Padding="20"
+                Background="White"
+                BorderBrush="#D9E2EC"
+                BorderThickness="1"
+                CornerRadius="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="205" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="14" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="14" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="14" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="14" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Foreground="#526477" Text="Screenshot interval" />
+                <TextBlock x:Name="ScreenshotIntervalText" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" />
+
+                <TextBlock Grid.Row="2" Foreground="#526477" Text="Process snapshot interval" />
+                <TextBlock x:Name="ProcessIntervalText" Grid.Row="2" Grid.Column="1" FontWeight="SemiBold" />
+
+                <TextBlock Grid.Row="4" Foreground="#526477" Text="Last screenshot" />
+                <TextBlock x:Name="LastScreenshotText" Grid.Row="4" Grid.Column="1" FontWeight="SemiBold" Text="Not yet" />
+
+                <TextBlock Grid.Row="6" Foreground="#526477" Text="Last process snapshot" />
+                <TextBlock x:Name="LastProcessSnapshotText" Grid.Row="6" Grid.Column="1" FontWeight="SemiBold" Text="Not yet" />
+
+                <TextBlock Grid.Row="8" Foreground="#526477" Text="Local data directory" />
+                <TextBlock x:Name="DataDirectoryText"
+                           Grid.Row="8"
+                           Grid.Column="1"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+            </Grid>
+        </Border>
+
+        <DockPanel Grid.Row="6" LastChildFill="False">
+            <TextBlock x:Name="DetailText"
+                       MaxWidth="440"
+                       VerticalAlignment="Center"
+                       Foreground="#526477"
+                       Text="Monitoring starts automatically while this window is visible."
+                       TextWrapping="Wrap" />
+            <Button x:Name="StopButton"
+                    Width="96"
+                    Height="36"
+                    Margin="12,0,0,0"
+                    Click="StopButton_Click"
+                    Content="Stop"
+                    DockPanel.Dock="Right" />
+            <Button x:Name="StartButton"
+                    Width="96"
+                    Height="36"
+                    Click="StartButton_Click"
+                    Content="Start"
+                    DockPanel.Dock="Right" />
+        </DockPanel>
+    </Grid>
+</Window>
