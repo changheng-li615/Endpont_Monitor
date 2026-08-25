@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using Xugar.Endpoint.Agent.Services;
@@ -9,16 +11,18 @@ namespace Xugar.Endpoint.Agent;
 public partial class MainWindow : Window
 {
     private readonly MonitoringCoordinator _coordinator;
+    private readonly string _dataRoot;
     private bool _loaded;
 
     public MainWindow(MonitoringCoordinator coordinator, AgentConfiguration configuration)
     {
         _coordinator = coordinator;
+        _dataRoot = StoragePaths.ResolveDataRoot(configuration.Storage.RootPath);
         InitializeComponent();
 
         ScreenshotIntervalText.Text = $"{configuration.Monitoring.ScreenshotIntervalSeconds} seconds";
         ProcessIntervalText.Text = $"{configuration.Monitoring.ProcessIntervalSeconds} seconds";
-        DataDirectoryText.Text = StoragePaths.ResolveDataRoot(configuration.Storage.RootPath);
+        DataDirectoryText.Text = _dataRoot;
         SetRunningState(isRunning: false);
 
         _coordinator.ProgressChanged += Coordinator_ProgressChanged;
@@ -54,6 +58,28 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             ShowFailure($"Could not stop cleanly: {exception.Message}");
+        }
+    }
+
+    private void OpenDataFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(_dataRoot);
+            using var explorer = Process.Start(new ProcessStartInfo
+            {
+                FileName = _dataRoot,
+                UseShellExecute = true
+            });
+
+            if (explorer is null)
+            {
+                DetailText.Text = "Windows could not open the local data directory.";
+            }
+        }
+        catch (Exception exception)
+        {
+            DetailText.Text = $"Could not open the local data directory: {exception.Message}";
         }
     }
 

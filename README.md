@@ -9,6 +9,7 @@ Xugar Endpoint Monitor is a transparent, company-authorized Windows 11 endpoint-
 - PNG screenshots every 300 seconds (five minutes) by default.
 - One screenshot per detected monitor when the normal interactive desktop is available.
 - Local JSONL process, screenshot-metadata, operational, and retention records.
+- Derived human-readable daily process CSV reports.
 - Local file retention of 24 hours by default.
 - Resilient handling of inaccessible or short-lived processes.
 
@@ -70,11 +71,36 @@ The default layout is:
 %LOCALAPPDATA%\Xugar\EndpointMonitor\Data\
   yyyy-MM-dd\
     telemetry.jsonl
+    process-current.csv
+    process-events.csv
+    process-summary.csv
     screenshots\
       yyyyMMddTHHmmssfffZ_monitor-1.png
 ```
 
 The application refuses a filesystem volume root as its data root, confines generated paths to the configured root, does not follow reparse-point directories during cleanup, and tolerates files that cannot be deleted. Local development data and build artifacts are excluded by `.gitignore`.
+
+### Process reports
+
+`telemetry.jsonl` is the canonical raw source of truth. The CSV files are derived, human-readable reports and can be regenerated or discarded without changing the underlying telemetry meaning:
+
+- `process-current.csv` is atomically replaced after each successful process snapshot and contains the latest observed process list.
+- `process-events.csv` appends `START` and `STOP` transitions. The first snapshot after each agent startup establishes a baseline and does not generate a false flood of `START` rows.
+- `process-summary.csv` is atomically replaced with a daily summary grouped by process name. Existing daily summary counts are continued when the agent restarts.
+
+CSV reports use UTF-8 with a byte-order mark, CRLF line endings, headers, and RFC-compatible field escaping for Excel readability. Empty/inaccessible fields remain empty. The reports add a conservative path-derived category:
+
+- `System`: executable is under the Windows directory;
+- `Application`: an accessible executable path is outside the Windows directory;
+- `Unknown`: the executable path is unavailable or cannot be safely interpreted.
+
+This category is only a human-reporting aid and must not be used for blocking or other security decisions.
+
+`SampleCount` means the number of periodic snapshots in which a process name was present; it is not exact application usage duration. A background process being present does not mean the employee was actively using it. `ForegroundSampleCount` counts snapshots where at least one instance was foreground and is only an approximate activity indicator.
+
+Process events are sampling-based: a process that starts and stops entirely between snapshots may not appear. When executable paths are inaccessible, matching falls back to PID plus process name, so same-name PID reuse can be ambiguous.
+
+If a CSV file is locked or cannot be written, canonical JSONL collection continues and a local operational warning is recorded. Retention cleanup treats CSV reports consistently with other files under the configured data root.
 
 See [architecture](docs/ARCHITECTURE.md), [privacy and data](docs/PRIVACY_AND_DATA.md), and the [manual Windows test plan](docs/MANUAL_TEST_PLAN.md).
 
@@ -83,6 +109,6 @@ See [architecture](docs/ARCHITECTURE.md), [privacy and data](docs/PRIVACY_AND_DA
 - Desktop and lock/unlock behavior still requires testing in a real standard-user Windows session.
 - GDI screenshots may not include protected video, hardware overlays, or DRM content.
 - Publisher/signature metadata is not collected in Phase 1.
+- Process categories and foreground samples are approximate reporting metadata, not security or exact usage evidence.
 - The Service project is an inert future placeholder and is neither installed nor used by the agent.
 - There is no tray icon, installer, code signing, autostart, backend, upload queue, dashboard, or enforcement.
-

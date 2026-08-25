@@ -73,6 +73,24 @@ public static class StoragePaths
         return EnsureUnderRoot(dataRoot, Path.Combine(dateDirectory, "screenshots"));
     }
 
+    public static string GetProcessCurrentCsvPath(string dataRoot, DateTimeOffset timestampUtc) =>
+        GetDailyFilePath(dataRoot, timestampUtc, "process-current.csv");
+
+    public static string GetProcessEventsCsvPath(string dataRoot, DateTimeOffset timestampUtc) =>
+        GetDailyFilePath(dataRoot, timestampUtc, "process-events.csv");
+
+    public static string GetProcessSummaryCsvPath(string dataRoot, DateTimeOffset timestampUtc) =>
+        GetDailyFilePath(dataRoot, timestampUtc, "process-summary.csv");
+
+    private static string GetDailyFilePath(
+        string dataRoot,
+        DateTimeOffset timestampUtc,
+        string fileName)
+    {
+        var dateDirectory = GetDateDirectory(dataRoot, timestampUtc);
+        return EnsureUnderRoot(dataRoot, Path.Combine(dateDirectory, fileName));
+    }
+
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 }

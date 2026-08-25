@@ -109,6 +109,13 @@
                     Click="StopButton_Click"
                     Content="Stop"
                     DockPanel.Dock="Right" />
+            <Button x:Name="OpenDataFolderButton"
+                    Width="128"
+                    Height="36"
+                    Margin="12,0,0,0"
+                    Click="OpenDataFolderButton_Click"
+                    Content="Open Data Folder"
+                    DockPanel.Dock="Right" />
             <Button x:Name="StartButton"
                     Width="96"
                     Height="36"

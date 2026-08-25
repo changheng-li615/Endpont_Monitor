@@ -22,6 +22,8 @@ Process snapshots contain:
 
 Screenshots contain the pixels visible on each normal interactive monitor at capture time. Screenshot telemetry contains capture timestamp, one-based monitor index, local file path, and pixel dimensions. Operational JSONL records contain monitoring, success/failure, count, skip, and retention-cleanup events.
 
+Daily `process-current.csv`, `process-events.csv`, and `process-summary.csv` files are human-readable derivatives of process telemetry. JSONL remains canonical. Process presence samples are not exact usage duration, a background process does not prove employee activity, and foreground sample counts are only approximate indicators. `Application`, `System`, and `Unknown` categories are reporting labels, not security classifications.
+
 Executable paths and screenshots can contain personal or confidential information. The 24-hour default is a prototype setting, not a substitute for an approved retention policy.
 
 ## Data explicitly not collected
@@ -62,4 +64,3 @@ Before Phase 2 or deployment beyond controlled prototyping, management should ex
 - who may access local data;
 - Windows encryption and endpoint-protection requirements;
 - legal, privacy, employment, and works-council obligations where applicable.
-

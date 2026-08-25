@@ -13,6 +13,7 @@ public sealed class MonitoringCoordinator(
     IProcessSnapshotProvider processSnapshotProvider,
     IScreenshotCapture screenshotCapture,
     ILocalTelemetryStore telemetryStore,
+    IProcessReportWriter processReportWriter,
     RetentionCleanup retentionCleanup,
     ILogger<MonitoringCoordinator> logger) : IAsyncDisposable, IDisposable
 {
@@ -133,6 +134,7 @@ public sealed class MonitoringCoordinator(
             await telemetryStore
                 .WriteProcessSnapshotAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
+            await TryWriteProcessReportsAsync(snapshot, cancellationToken).ConfigureAwait(false);
 
             lock (_progressGate)
             {
@@ -230,6 +232,32 @@ public sealed class MonitoringCoordinator(
                 isRunning: true,
                 status: "Monitoring active with a recent error",
                 detail: "The last screenshot failed; the next scheduled capture will still run.");
+        }
+    }
+
+    private async Task TryWriteProcessReportsAsync(
+        ProcessSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await processReportWriter
+                .WriteSnapshotAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Derived process CSV reporting failed.");
+            await TryWriteOperationalEventAsync(
+                CreateEvent(
+                    "processReport",
+                    "Warning",
+                    "Derived process CSV reporting failed; canonical JSONL capture succeeded."),
+                cancellationToken).ConfigureAwait(false);
         }
     }
 

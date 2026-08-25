@@ -21,10 +21,13 @@ public sealed class RetentionCleanupTests
         var datedDirectory = Path.Combine(temporaryDirectory.Path, "2026-08-25");
         Directory.CreateDirectory(datedDirectory);
         var oldFile = Path.Combine(datedDirectory, "old.jsonl");
+        var oldCsvFile = Path.Combine(datedDirectory, "old-report.csv");
         var newFile = Path.Combine(datedDirectory, "new.jsonl");
         await File.WriteAllTextAsync(oldFile, "old");
+        await File.WriteAllTextAsync(oldCsvFile, "old csv");
         await File.WriteAllTextAsync(newFile, "new");
         File.SetLastWriteTimeUtc(oldFile, new DateTime(2026, 8, 24, 0, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(oldCsvFile, new DateTime(2026, 8, 24, 0, 0, 0, DateTimeKind.Utc));
         File.SetLastWriteTimeUtc(newFile, new DateTime(2026, 8, 25, 11, 0, 0, DateTimeKind.Utc));
 
         var cleanup = new RetentionCleanup();
@@ -34,8 +37,9 @@ public sealed class RetentionCleanupTests
             CancellationToken.None);
 
         Assert.False(File.Exists(oldFile));
+        Assert.False(File.Exists(oldCsvFile));
         Assert.True(File.Exists(newFile));
-        Assert.Equal(1, result.DeletedFiles);
+        Assert.Equal(2, result.DeletedFiles);
         Assert.Equal(0, result.FailedFiles);
     }
 

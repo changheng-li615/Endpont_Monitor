@@ -14,10 +14,11 @@ These checks require a real interactive Windows 11 desktop. Record the tester, d
 1. Run `dotnet run --project .\src\Xugar.Endpoint.Agent\Xugar.Endpoint.Agent.csproj`.
 2. Verify a normal window titled **Xugar Endpoint Monitor** is visible and identifies the prototype as local-only.
 3. Verify it shows status, 300-second screenshot interval (or the clearly identified override), 60-second process interval, last screenshot, last process snapshot, and local data directory.
-4. Verify monitoring starts automatically.
-5. Select **Stop**. Wait longer than both configured intervals and verify timestamps/files do not advance.
-6. Select **Start** and verify capture resumes.
-7. Close the window and verify the agent process exits; confirm no service or hidden background process remains.
+4. Select **Open Data Folder** and verify Windows Explorer opens the configured Xugar data root.
+5. Verify monitoring starts automatically.
+6. Select **Stop**. Wait longer than both configured intervals and verify timestamps/files do not advance.
+7. Select **Start** and verify capture resumes.
+8. Close the window and verify the agent process exits; confirm no service or hidden background process remains.
 
 ## Local telemetry and process resilience
 
@@ -27,6 +28,20 @@ These checks require a real interactive Windows 11 desktop. Record the tester, d
 4. Verify machine/user, process name, PID, accessible path/version, working set, and foreground status fields are present as designed.
 5. Verify inaccessible fields are omitted/null and a protected or rapidly exiting process does not stop later snapshots.
 6. Search telemetry for `commandLine`, known test passwords, tokens, and clipboard content; verify none was collected.
+
+## Human-readable process reports
+
+1. Verify `telemetry.jsonl` remains present and valid; treat it as the canonical raw record. Treat all CSV files as derived reports.
+2. After a successful process snapshot, verify `process-current.csv`, `process-events.csv`, and `process-summary.csv` exist in the same daily directory as `telemetry.jsonl`.
+3. Open each CSV in Excel and a text editor. Verify headers, UTF-8 characters, commas/quotes in fields, and empty inaccessible fields display correctly.
+4. Verify `process-current.csv` contains only the latest snapshot and includes category, PID, accessible path/version, working-set MB, and foreground state.
+5. Start the agent with several applications already running. Verify the first snapshot creates only the `process-events.csv` header and does not produce hundreds of false `START` events.
+6. Start Notepad, wait for a snapshot, close Notepad, and wait for another snapshot. Verify one corresponding `START` and `STOP` transition, allowing for PID changes caused by Windows application behavior.
+7. Restart the agent. Verify the first post-restart snapshot is again an event baseline and the existing daily summary continues rather than resetting its counts.
+8. Verify `process-summary.csv` groups primarily by process name, updates first/last seen times, counts one presence sample per process name per snapshot, records peak working set, and increments foreground samples only when observed foreground.
+9. Confirm with reviewers that `SampleCount` is not interpreted as exact application usage duration, background process presence is not interpreted as employee activity, and `ForegroundSampleCount` is treated only as an approximate indicator.
+10. Review several `Application`, `System`, and `Unknown` categories. Confirm they are sensible human labels and are not used for blocking, enforcement, or security decisions.
+11. Keep `process-current.csv` open in an application that prevents replacement, then wait for another snapshot. Verify JSONL continues to update and a local `processReport` warning is recorded even though the derived CSV update fails.
 
 ## Screenshot behavior
 
@@ -43,13 +58,13 @@ These checks require a real interactive Windows 11 desktop. Record the tester, d
 1. Copy disposable test files into a dated subdirectory beneath the configured Xugar data root.
 2. Set one test file's last-write time older than the configured cutoff and keep another newer than the cutoff.
 3. Start monitoring and verify the expired file is deleted while the newer file remains.
-4. Keep a disposable expired file open with a deny-delete share mode if practical. Verify cleanup records a failure and monitoring continues.
-5. Confirm no file outside the configured Xugar data root changed.
-6. Attempt to configure a volume root such as `C:\`; verify startup rejects the setting.
+4. Include disposable CSV files in the retention test and verify they follow the same cutoff behavior as JSONL and screenshots.
+5. Keep a disposable expired file open with a deny-delete share mode if practical. Verify cleanup records a failure and monitoring continues.
+6. Confirm no file outside the configured Xugar data root changed.
+7. Attempt to configure a volume root such as `C:\`; verify startup rejects the setting.
 
 ## Cleanup
 
 1. Close the agent.
 2. Remove the temporary environment override: `Remove-Item Env:XUGAR_Monitoring__ScreenshotIntervalSeconds -ErrorAction SilentlyContinue`.
 3. Retain test evidence only according to the approved prototype policy; screenshots may contain sensitive information.
-

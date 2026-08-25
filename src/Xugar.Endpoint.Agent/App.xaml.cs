@@ -37,6 +37,8 @@ public partial class App : Application
             builder.Services.AddSingleton<IScreenshotCapture, WindowsScreenshotCapture>();
             builder.Services.AddSingleton<ILocalTelemetryStore>(
                 _ => new FileLocalTelemetryStore(dataRoot));
+            builder.Services.AddSingleton<IProcessReportWriter>(
+                _ => new ProcessCsvReportWriter(dataRoot));
             builder.Services.AddSingleton<RetentionCleanup>();
             builder.Services.AddSingleton<MonitoringCoordinator>();
             builder.Services.AddSingleton<MainWindow>();
