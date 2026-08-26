@@ -1,8 +1,38 @@
-# Phase 1 Architecture
+# Platform Architecture — Phase 2A
 
-## Boundaries
+## Current phase boundary
 
-The Phase 1 application is a normal, visible WPF process in the signed-in user's Windows session. Screenshot capture stays in that process because a future Windows Service must not attempt desktop capture across session boundaries. All output remains on local disk; no network client or backend exists.
+Phase 2A adds an independent central server without connecting it to the Windows Agent. The Phase 1/1.2 WPF implementation, local JSONL canonical record, derived CSV reports, 300-second screenshot default, and local retention remain unchanged.
+
+```text
+Visible Windows Agent (Phase 1/1.2, local only)
+  -> local JSONL + CSV + PNG
+
+Phase 2A central platform (not yet contacted by Agent)
+  -> Next.js route handlers and server components
+  -> Prisma driver adapter -> PostgreSQL
+  -> private ScreenshotStorage
+  -> authenticated Manager pages
+
+ActivTrak (Phase 2C integration not implemented)
+```
+
+Agent transport, DPAPI credential storage, policy consumption, and offline queues belong to Phase 2B. ActivTrak webhooks belong to Phase 2C.
+
+## Central server boundaries
+
+- `server/app/api/v1` contains bounded device APIs. Enrollment has a dedicated environment token; every later device route requires matching device ID and per-device bearer secret.
+- `server/lib` contains validation, cryptography, device/Manager authentication, database access, screenshot storage, retention, and dashboard query logic.
+- `server/prisma` contains the schema and tracked migrations. Current process state is transactionally replaced instead of accumulated.
+- `server/app/admin` uses server-side database access; Prisma is never exposed to client code.
+- Screenshot binaries remain outside PostgreSQL and `public`; only confined storage keys and metadata are stored.
+- ActivTrak models/status in Phase 2A are placeholders. No webhook or live API call exists.
+
+Manager authorization is denied by default. Development mode requires two explicit flags and cannot run in production. Google mode uses Auth.js and requires an approved domain plus explicit Manager email membership.
+
+## Windows Agent boundaries
+
+The Phase 1 application is a normal, visible WPF process in the signed-in user's Windows session. Screenshot capture stays in that process because a future Windows Service must not attempt desktop capture across session boundaries. All Agent output remains on local disk; no network client exists in the Agent during Phase 2A.
 
 ```text
 Visible WPF window

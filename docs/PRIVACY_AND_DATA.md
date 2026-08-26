@@ -1,4 +1,17 @@
-# Privacy and Data — Phase 1
+# Privacy and Data — Phase 2A Boundary
+
+## Source-of-truth separation
+
+| Data | Source of truth |
+|---|---|
+| Device registration, Agent health/version/configuration | Xugar |
+| Approved periodic Xugar screenshots | Xugar |
+| Complete process presence and START/STOP samples | Xugar |
+| Active application/site activity and usage duration | ActivTrak |
+| Active/passive status, productivity and workforce analytics | ActivTrak |
+| ActivTrak alarms and supported actions | ActivTrak |
+
+Xugar must not derive productivity scores, employee activity time, or hours worked from process presence, foreground samples, heartbeat, or online/offline state.
 
 ## Transparency
 
@@ -44,7 +57,7 @@ Publisher/signature information is not implemented in this phase.
 
 ## Storage and access
 
-Phase 1 stores data locally only. There is no backend, cloud upload, remote management, API, database, or network telemetry path. The default root is:
+The Phase 1 Agent still stores data locally only and has no Phase 2A network client. Its default root is:
 
 ```text
 %LOCALAPPDATA%\Xugar\EndpointMonitor\Data
@@ -54,9 +67,13 @@ PNG images are stored separately from JSONL; screenshot pixel data is never logg
 
 Retention cleanup defaults to 24 hours, skips filesystem links/reparse points, refuses a whole filesystem root, and tolerates inaccessible files. A file in use or otherwise inaccessible can survive past its cutoff until a later cleanup succeeds.
 
+The separate Phase 2A server can receive synthetic/manual API data but is not contacted by the Agent. PostgreSQL stores device metadata, hash-only device credentials, heartbeats, current processes, START/STOP events, bounded Agent events, screenshot metadata, policy, normalized ActivTrak placeholders, and Manager audit records. Screenshot images remain in private configured filesystem storage, never PostgreSQL or `public`.
+
+Enrollment tokens, device secrets, authorization headers, OAuth secrets, and webhook tokens must not be logged or persisted in plaintext. Screenshot access requires Manager authorization and creates an audit event. Development Manager authentication is not suitable for employee data or public deployment.
+
 ## Required review before expansion
 
-Before Phase 2 or deployment beyond controlled prototyping, management should explicitly approve:
+Before Agent/server integration or deployment beyond controlled prototyping, management should explicitly approve:
 
 - the screenshot purpose, interval, and employee notice;
 - every process and device field;
@@ -64,3 +81,6 @@ Before Phase 2 or deployment beyond controlled prototyping, management should ex
 - who may access local data;
 - Windows encryption and endpoint-protection requirements;
 - legal, privacy, employment, and works-council obligations where applicable.
+- central screenshot/process/heartbeat/diagnostic/audit retention periods;
+- Manager roles and Google Workspace OAuth deployment;
+- Xugar and ActivTrak schedules, which must not be assumed identical.

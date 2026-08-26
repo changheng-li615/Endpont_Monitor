@@ -1,0 +1,23 @@
+name: xugar-endpoint-monitor
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${XUGAR_POSTGRES_DB:-xugar_endpoint}
+      POSTGRES_USER: ${XUGAR_POSTGRES_USER:-xugar_dev}
+      POSTGRES_PASSWORD: ${XUGAR_POSTGRES_PASSWORD:-xugar_dev_only_change_me}
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - xugar-postgres-data-v18:/var/lib/postgresql
+
+volumes:
+  xugar-postgres-data-v18:

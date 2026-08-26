@@ -1,6 +1,12 @@
-# Manual Windows Test Plan
+# Manual Test Plan
 
 These checks require a real interactive Windows 11 desktop. Record the tester, device/build, date, configuration override, expected result, actual result, and pass/fail for each check. Do not treat the automated build as evidence that desktop capture was exercised.
+
+Use this evidence format for each executed check:
+
+| Test ID | Setup | Steps | Expected | Actual | PASS/FAIL | Evidence | Notes |
+|---|---|---|---|---|---|---|---|
+| Example | Authorized test environment | Numbered actions | Observable result | Tester records | Tester records | Screenshot/log reference | No secrets |
 
 ## Preparation
 
@@ -68,3 +74,18 @@ These checks require a real interactive Windows 11 desktop. Record the tester, d
 1. Close the agent.
 2. Remove the temporary environment override: `Remove-Item Env:XUGAR_Monitoring__ScreenshotIntervalSeconds -ErrorAction SilentlyContinue`.
 3. Retain test evidence only according to the approved prototype policy; screenshots may contain sensitive information.
+
+## Phase 2A central server manual checks
+
+| Test ID | Setup | Steps | Expected | Actual | PASS/FAIL | Evidence | Notes |
+|---|---|---|---|---|---|---|---|
+| P2A-DB-01 | Docker Desktop running | Start Compose and inspect `docker compose -f docker-compose.dev.yml ps` | PostgreSQL 18 is healthy on loopback port 55432 | | | | Do not delete volume |
+| P2A-DB-02 | Configured `DATABASE_URL` | Deploy migrations, restart container, check status | Both tracked migrations remain applied; data survives restart | | | | No `db push` |
+| P2A-AUTH-01 | No Manager auth variables | Start server and open `/admin` | Manager data is inaccessible | | | | Safe default |
+| P2A-AUTH-02 | Non-production explicit development flags | Open overview, device list, and detail | Dashboard is locally accessible | | | | DEVELOPMENT ONLY |
+| P2A-AUTH-03 | Real Google test OAuth app and allow-list | Sign in as allowed Manager and non-allowed user | Allowed Manager succeeds; other user is denied | | | | Required before staging |
+| P2A-API-01 | Synthetic `@example.invalid` device | Enroll, call heartbeat and policy | Secret returned once; policy defaults disabled | | | | Never record secret |
+| P2A-API-02 | Enrolled synthetic device | Replace processes twice; post START/STOP | Removed current row disappears; history remains | | | | No command lines |
+| P2A-SHOT-01 | Disposable synthetic PNG/JPEG | Upload and view through Manager route | Private generated files/hashes; unauthenticated read denied | | | | No real screenshots |
+| P2A-RET-01 | Disposable expired screenshot | Run `npm run retention:cleanup` | Only confined expired file/metadata removed; audit written | | | | Retention approval required |
+| P2A-PRIV-01 | Synthetic dashboard data | Review all labels | Sources are distinct; no employee-activity inference | | | | No productivity score |

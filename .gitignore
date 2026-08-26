@@ -13,7 +13,17 @@ data/
 **/data/
 appsettings.Local.json
 
+# Phase 2A server dependencies, generated code, local secrets, and runtime data
+server/node_modules/
+server/.next/
+server/coverage/
+server/generated/
+server/*.tsbuildinfo
+server/.env
+server/.env.local
+server/.env.*.local
+server/runtime/
+
 # User-specific IDE files
 *.user
 *.suo
-

@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProcessEventType {
+  START
+  STOP
+}
+
+enum AgentEventSeverity {
+  INFO
+  WARNING
+  ERROR
+}
+
+enum ActivTrakMode {
+  DISABLED
+  FIXTURE
+  LIVE
+}
+
+enum ActivTrakMappingStatus {
+  MATCHED
+  UNMATCHED
+  AMBIGUOUS
+}
+
+model Device {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  installationId       String                 @unique @db.Uuid
+  hostname             String                 @db.VarChar(255)
+  windowsUser          String?                @db.VarChar(255)
+  workEmail            String?                @db.VarChar(320)
+  osVersion            String                 @db.VarChar(255)
+  agentVersion         String                 @db.VarChar(64)
+  enrolledAt           DateTime               @default(now()) @db.Timestamptz(3)
+  lastSeenAt           DateTime               @default(now()) @db.Timestamptz(3)
+  lastHeartbeatAt      DateTime?              @db.Timestamptz(3)
+  isRevoked            Boolean                @default(false)
+  deviceSecretHash     String                 @db.VarChar(255)
+  monitoringPolicyId   String?                @db.Uuid
+  createdAt            DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime               @updatedAt @db.Timestamptz(3)
+  monitoringPolicy     MonitoringPolicy?      @relation(fields: [monitoringPolicyId], references: [id], onDelete: SetNull)
+  heartbeats            DeviceHeartbeat[]
+  currentProcesses      DeviceCurrentProcess[]
+  processEvents         ProcessEvent[]
+  screenshots           Screenshot[]
+  agentEvents           AgentEvent[]
+  activTrakAlarmEvents  ActivTrakAlarmEvent[]
+
+  @@index([lastSeenAt])
+  @@index([lastHeartbeatAt])
+  @@index([monitoringPolicyId])
+}
+
+model DeviceHeartbeat {
+  id            String   @id @default(uuid()) @db.Uuid
+  deviceId      String   @db.Uuid
+  occurredAt    DateTime @db.Timestamptz(3)
+  agentVersion  String   @db.VarChar(64)
+  osVersion     String   @db.VarChar(255)
+  uptimeSeconds BigInt?
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, occurredAt])
+  @@index([occurredAt])
+}
+
+model DeviceCurrentProcess {
+  id             String   @id @default(uuid()) @db.Uuid
+  deviceId       String   @db.Uuid
+  processKey     String   @db.VarChar(768)
+  processName    String   @db.VarChar(255)
+  pid            Int
+  executablePath String?  @db.VarChar(2048)
+  productVersion String?  @db.VarChar(255)
+  workingSetMb   Float?
+  isForeground   Boolean
+  observedAt     DateTime @db.Timestamptz(3)
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, processKey])
+  @@index([deviceId, processName])
+  @@index([observedAt])
+}
+
+model ProcessEvent {
+  id             String           @id @default(uuid()) @db.Uuid
+  deviceId       String           @db.Uuid
+  occurredAt     DateTime         @db.Timestamptz(3)
+  eventType      ProcessEventType
+  processName    String           @db.VarChar(255)
+  pid            Int
+  executablePath String?          @db.VarChar(2048)
+  productVersion String?          @db.VarChar(255)
+  workingSetMb   Float?
+  isForeground   Boolean?
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  device         Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, occurredAt])
+  @@index([occurredAt])
+}
+
+model Screenshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  deviceId     String   @db.Uuid
+  capturedAt   DateTime @db.Timestamptz(3)
+  monitorIndex Int
+  storageKey   String   @unique @db.VarChar(1024)
+  mimeType     String   @db.VarChar(32)
+  width        Int?
+  height       Int?
+  sizeBytes    Int
+  sha256       String   @db.Char(64)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, capturedAt])
+  @@index([capturedAt])
+}
+
+model AgentEvent {
+  id         String             @id @default(uuid()) @db.Uuid
+  deviceId   String             @db.Uuid
+  occurredAt DateTime           @db.Timestamptz(3)
+  eventType  String             @db.VarChar(64)
+  severity   AgentEventSeverity
+  message    String             @db.VarChar(1000)
+  createdAt  DateTime           @default(now()) @db.Timestamptz(3)
+  device     Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, occurredAt])
+  @@index([occurredAt])
+}
+
+model MonitoringPolicy {
+  id                        String                     @id @default(uuid()) @db.Uuid
+  name                      String                     @db.VarChar(255)
+  monitoringEnabled         Boolean                    @default(false)
+  screenshotEnabled         Boolean                    @default(false)
+  screenshotIntervalSeconds Int                        @default(300)
+  processEnabled            Boolean                    @default(false)
+  processIntervalSeconds    Int                        @default(60)
+  timezone                  String                     @default("UTC") @db.VarChar(100)
+  version                   Int                        @default(1)
+  createdAt                 DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime                   @updatedAt @db.Timestamptz(3)
+  scheduleWindows           MonitoringScheduleWindow[]
+  devices                   Device[]
+
+  @@index([updatedAt])
+}
+
+model MonitoringScheduleWindow {
+  id             String           @id @default(uuid()) @db.Uuid
+  policyId       String           @db.Uuid
+  dayOfWeek      Int
+  startLocalTime String           @db.VarChar(5)
+  endLocalTime   String           @db.VarChar(5)
+  policy         MonitoringPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId, dayOfWeek])
+}
+
+model ActivTrakIntegration {
+  id                        String        @id @default(uuid()) @db.Uuid
+  mode                      ActivTrakMode @default(DISABLED)
+  enabled                   Boolean       @default(false)
+  accountLabel              String?       @db.VarChar(255)
+  webhookTokenHash          String?       @db.VarChar(255)
+  webhookTokenLastRotatedAt DateTime?     @db.Timestamptz(3)
+  activConnectEnabled       Boolean       @default(false)
+  createdAt                 DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime      @updatedAt @db.Timestamptz(3)
+}
+
+model ActivTrakAlarmEvent {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  source             String                    @default("ACTIVTRAK") @db.VarChar(32)
+  externalEventId    String?                   @db.VarChar(255)
+  alarmName          String                    @db.VarChar(255)
+  alarmType          String?                   @db.VarChar(255)
+  occurredAt         DateTime                  @db.Timestamptz(3)
+  userIdentifier     String?                   @db.VarChar(320)
+  computerIdentifier String?                   @db.VarChar(255)
+  application        String?                   @db.VarChar(255)
+  domain             String?                   @db.VarChar(255)
+  actionSummary      String?                   @db.VarChar(1000)
+  activtrakDeepLink  String?                   @db.VarChar(2048)
+  receivedAt         DateTime                  @default(now()) @db.Timestamptz(3)
+  mappingStatus      ActivTrakMappingStatus    @default(UNMATCHED)
+  mappedDeviceId     String?                   @db.Uuid
+  mappedDevice       Device?                   @relation(fields: [mappedDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt])
+  @@index([mappedDeviceId])
+  @@index([alarmName])
+}
+
+model AuditEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  actorIdentifier String   @db.VarChar(320)
+  action          String   @db.VarChar(100)
+  targetType      String   @db.VarChar(100)
+  targetId        String?  @db.VarChar(255)
+  summary         String   @db.VarChar(1000)
+  occurredAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([occurredAt])
+  @@index([action])
+}

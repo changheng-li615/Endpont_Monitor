@@ -1,0 +1,30 @@
+import { authenticateDevice } from "@/lib/device-auth";
+import { readBoundedJson, routeError } from "@/lib/http";
+import { prisma } from "@/lib/prisma";
+import { processEventsSchema } from "@/lib/schemas";
+
+type RouteContext = { params: Promise<{ id: string }> };
+
+export async function POST(request: Request, context: RouteContext): Promise<Response> {
+  try {
+    const { id } = await context.params;
+    const device = await authenticateDevice(request, id);
+    const input = await readBoundedJson(request, processEventsSchema, 1024 * 1024);
+    const rows = input.events.map((event) => ({
+      ...event,
+      executablePath: event.executablePath ?? null,
+      productVersion: event.productVersion ?? null,
+      workingSetMb: event.workingSetMb ?? null,
+      isForeground: event.isForeground ?? null,
+      occurredAt: new Date(event.occurredAt),
+      deviceId: device.id,
+    }));
+    await prisma.$transaction([
+      prisma.processEvent.createMany({ data: rows }),
+      prisma.device.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } }),
+    ]);
+    return Response.json({ accepted: rows.length }, { status: 202 });
+  } catch (error) {
+    return routeError(error);
+  }
+}

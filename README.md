@@ -1,6 +1,8 @@
 # Xugar Endpoint Monitor
 
-Xugar Endpoint Monitor is a transparent, company-authorized Windows 11 endpoint-monitoring prototype for company-owned laptops. Phase 1 runs as a visible WPF application in the signed-in employee session and stores its telemetry only on the local device.
+Xugar Endpoint Monitor is a transparent, company-authorized endpoint management and monitoring platform for company-owned Windows laptops. The repository contains the stable Phase 1/1.2 visible Windows Agent and the Phase 2A central-platform foundation. The Agent remains local-only until the separately gated Phase 2B integration.
+
+Xugar owns device health, approved periodic screenshots, complete process presence, and START/STOP events. ActivTrak remains the future source of truth for application/website activity, usage duration, active/passive status, productivity classification, and workforce analytics. Process presence must never be presented as employee activity or hours worked.
 
 ## Phase 1 capabilities
 
@@ -13,12 +15,28 @@ Xugar Endpoint Monitor is a transparent, company-authorized Windows 11 endpoint-
 - Local file retention of 24 hours by default.
 - Resilient handling of inaccessible or short-lived processes.
 
-The prototype makes no network calls. It does not upload data, manage devices remotely, enforce application policy, install a Windows Service, start automatically, hide itself, capture command lines, keylog, capture the clipboard, collect credentials, activate a microphone or webcam, or bypass UAC/secure desktop.
+The Windows Agent makes no network calls in Phase 2A. It does not upload data, manage devices remotely, enforce application policy, install a Windows Service, start automatically, hide itself, capture command lines, keylog, capture the clipboard, collect credentials, activate a microphone or webcam, or bypass UAC/secure desktop.
+
+## Phase 2A central-platform capabilities
+
+- Next.js App Router server written in strict TypeScript.
+- PostgreSQL 18 development service with tracked Prisma migrations.
+- Token-gated device enrollment with stable installation IDs and hash-only rotating device secrets.
+- Authenticated heartbeat, current-process replacement, lifecycle-event, screenshot, Agent-event, and policy APIs.
+- Private filesystem screenshot storage with server-generated keys, MIME/signature/size validation, and SHA-256 metadata.
+- Screenshot retention command confined to the configured storage root.
+- Server-rendered Manager overview, device list, and device detail pages.
+- Manager authentication defaults to denied, with explicit local-development and Google Workspace/Auth.js boundaries.
+- ActivTrak configuration/schema placeholders only; webhook ingestion remains Phase 2C.
+
+Phase 2A does not modify the Windows Agent or add Phase 2B networking.
 
 ## Prerequisites
 
 - Windows 11 x64
 - .NET 10 SDK
+- Node.js 24 and npm
+- Docker Desktop with Docker Compose, for development PostgreSQL only
 
 Confirm the SDK with:
 
@@ -35,6 +53,38 @@ dotnet restore
 dotnet build Xugar.EndpointMonitor.sln -c Debug
 dotnet test Xugar.EndpointMonitor.sln -c Debug --no-build
 ```
+
+For the Phase 2A server:
+
+```powershell
+docker compose -f docker-compose.dev.yml up -d
+Copy-Item .\server\.env.example .\server\.env
+# Replace every placeholder token/secret in server\.env before use.
+Set-Location .\server
+npm ci
+npm run prisma:migrate:deploy
+npm run lint
+npm test
+npm run build
+```
+
+Stop development containers without deleting the named database volume:
+
+```powershell
+docker compose -f docker-compose.dev.yml down
+```
+
+Do not add `--volumes` without explicit approval.
+
+### Manager authentication
+
+The safe default is `XUGAR_MANAGER_AUTH_MODE=disabled`. Local UI development requires both `XUGAR_MANAGER_AUTH_MODE=development` and `XUGAR_DEVELOPMENT_MANAGER=true`, and is refused when `NODE_ENV=production`. This mode is **DEVELOPMENT ONLY**.
+
+Google mode requires a real Auth.js secret and Google OAuth credentials, an approved Workspace domain, and an explicit Manager email allow-list. Domain membership alone is insufficient. Production deployment remains blocked until Google authentication is configured and manually verified.
+
+### Server screenshot retention
+
+`XUGAR_SCREENSHOT_STORAGE_ROOT` must be an absolute non-root directory outside `server/public`. Uploaded filenames are ignored. Run `npm run retention:cleanup` from `server`. The seven-day development default is not an approved production retention policy.
 
 ## Run the visible agent
 
@@ -102,7 +152,7 @@ Process events are sampling-based: a process that starts and stops entirely betw
 
 If a CSV file is locked or cannot be written, canonical JSONL collection continues and a local operational warning is recorded. Retention cleanup treats CSV reports consistently with other files under the configured data root.
 
-See [architecture](docs/ARCHITECTURE.md), [privacy and data](docs/PRIVACY_AND_DATA.md), and the [manual Windows test plan](docs/MANUAL_TEST_PLAN.md).
+See [architecture](docs/ARCHITECTURE.md), [privacy and data](docs/PRIVACY_AND_DATA.md), [Phase 2 API](docs/PHASE2_API.md), [security](docs/SECURITY.md), [operations](docs/OPERATIONS.md), [deployment](docs/DEPLOYMENT.md), [ActivTrak integration](docs/ACTIVTRAK_INTEGRATION.md), and the [manual test plan](docs/MANUAL_TEST_PLAN.md).
 
 ## Current limitations
 
@@ -111,4 +161,6 @@ See [architecture](docs/ARCHITECTURE.md), [privacy and data](docs/PRIVACY_AND_DA
 - Publisher/signature metadata is not collected in Phase 1.
 - Process categories and foreground samples are approximate reporting metadata, not security or exact usage evidence.
 - The Service project is an inert future placeholder and is neither installed nor used by the agent.
-- There is no tray icon, installer, code signing, autostart, backend, upload queue, dashboard, or enforcement.
+- There is no tray icon, installer, code signing, autostart, Agent upload queue, Agent/server synchronization, ActivTrak webhook ingestion, or enforcement.
+- Manager authentication is not production-ready without real Google Workspace OAuth credentials and an explicit Manager allow-list.
+- Prisma 7.9.1 currently reports `GHSA-ggr8-5vv4-36mx` in a local CLI configuration dependency. It is not a remote request path; adopt an upstream-supported fix before production hardening.
