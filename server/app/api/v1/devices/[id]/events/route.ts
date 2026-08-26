@@ -12,11 +12,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const input = await readBoundedJson(request, agentEventsSchema, 256 * 1024);
     const rows = input.events.map((event) => ({
       ...event,
+      clientEventId: event.clientEventId ?? null,
       occurredAt: new Date(event.occurredAt),
       deviceId: device.id,
     }));
     await prisma.$transaction([
-      prisma.agentEvent.createMany({ data: rows }),
+      prisma.agentEvent.createMany({ data: rows, skipDuplicates: true }),
       prisma.device.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } }),
     ]);
     return Response.json({ accepted: rows.length }, { status: 202 });

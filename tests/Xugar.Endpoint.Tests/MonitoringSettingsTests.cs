@@ -70,4 +70,62 @@ public sealed class MonitoringSettingsTests
 
         Assert.Throws<SettingsValidationException>(configuration.Validate);
     }
+
+    [Fact]
+    public void ServerSyncDefaultsDisabledAndUsesDocumentedIntervals()
+    {
+        var settings = new ServerSyncSettings();
+
+        Assert.False(settings.Enabled);
+        Assert.Equal(60, settings.HeartbeatIntervalSeconds);
+        Assert.Equal(300, settings.PolicyRefreshIntervalSeconds);
+        Assert.Equal(300, new MonitoringSettings().ScreenshotIntervalSeconds);
+    }
+
+    [Theory]
+    [InlineData("http://central.example.invalid", true)]
+    [InlineData("http://localhost:3000", false)]
+    public void ClearTextServerUrlIsAllowedOnlyForExplicitLoopbackDevelopment(
+        string baseUrl,
+        bool shouldReject)
+    {
+        var configuration = new AgentConfiguration
+        {
+            Storage = new StorageSettings
+            {
+                RootPath = Path.Combine(Path.GetTempPath(), "Xugar", "EndpointMonitor", "Data")
+            },
+            ServerSync = new ServerSyncSettings
+            {
+                Enabled = true,
+                BaseUrl = baseUrl,
+                AllowInsecureLocalhost = true
+            }
+        };
+
+        if (shouldReject)
+        {
+            Assert.Throws<SettingsValidationException>(configuration.Validate);
+        }
+        else
+        {
+            configuration.Validate();
+        }
+    }
+
+    [Fact]
+    public void DisabledSynchronizationDoesNotMakeStandaloneAgentDependOnServerUrl()
+    {
+        var configuration = new AgentConfiguration
+        {
+            Storage = new StorageSettings
+            {
+                RootPath = Path.Combine(Path.GetTempPath(), "Xugar", "EndpointMonitor", "Data")
+            },
+            ServerSync = new ServerSyncSettings { Enabled = false, BaseUrl = "not-a-url" }
+        };
+
+        configuration.Validate();
+        Assert.Equal("localhost", configuration.ServerSync.GetBaseUri().Host);
+    }
 }

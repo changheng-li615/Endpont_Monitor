@@ -79,6 +79,15 @@ public sealed class RetentionCleanup
                              SearchOption.TopDirectoryOnly))
                 {
                     var safeChild = StoragePaths.EnsureUnderRoot(safeRoot, childDirectory);
+                    if (string.Equals(
+                            safeChild,
+                            StoragePaths.GetSynchronizationDirectory(safeRoot),
+                            OperatingSystem.IsWindows()
+                                ? StringComparison.OrdinalIgnoreCase
+                                : StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
                     try
                     {
                         if ((File.GetAttributes(safeChild) & FileAttributes.ReparsePoint) != 0)

@@ -19,5 +19,25 @@ services:
     volumes:
       - xugar-postgres-data-v18:/var/lib/postgresql
 
+  postgres-test:
+    image: postgres:18-alpine
+    profiles: ["test"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xugar_endpoint_test
+      POSTGRES_USER: xugar_test
+      POSTGRES_PASSWORD: xugar_test_only_change_me
+    ports:
+      - "127.0.0.1:55433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - xugar-postgres-test-data-v18:/var/lib/postgresql
+
 volumes:
   xugar-postgres-data-v18:
+  xugar-postgres-test-data-v18:

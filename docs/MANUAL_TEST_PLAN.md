@@ -18,8 +18,8 @@ Use this evidence format for each executed check:
 ## Visibility and controls
 
 1. Run `dotnet run --project .\src\Xugar.Endpoint.Agent\Xugar.Endpoint.Agent.csproj`.
-2. Verify a normal window titled **Xugar Endpoint Monitor** is visible and identifies the prototype as local-only.
-3. Verify it shows status, 300-second screenshot interval (or the clearly identified override), 60-second process interval, last screenshot, last process snapshot, and local data directory.
+2. Verify a normal window titled **Xugar Endpoint Monitor** is visible and identifies optional server synchronization without claiming hidden operation.
+3. Verify it shows local status, 300-second screenshot interval (or the clearly identified override), 60-second process interval, last screenshot, last process snapshot, local data directory, and compact synchronization status.
 4. Select **Open Data Folder** and verify Windows Explorer opens the configured Xugar data root.
 5. Verify monitoring starts automatically.
 6. Select **Stop**. Wait longer than both configured intervals and verify timestamps/files do not advance.
@@ -80,7 +80,7 @@ Use this evidence format for each executed check:
 | Test ID | Setup | Steps | Expected | Actual | PASS/FAIL | Evidence | Notes |
 |---|---|---|---|---|---|---|---|
 | P2A-DB-01 | Docker Desktop running | Start Compose and inspect `docker compose -f docker-compose.dev.yml ps` | PostgreSQL 18 is healthy on loopback port 55432 | | | | Do not delete volume |
-| P2A-DB-02 | Configured `DATABASE_URL` | Deploy migrations, restart container, check status | Both tracked migrations remain applied; data survives restart | | | | No `db push` |
+| P2A-DB-02 | Configured `DATABASE_URL` | Deploy migrations, restart container, check status | All tracked migrations remain applied; data survives restart | | | | No `db push` |
 | P2A-AUTH-01 | No Manager auth variables | Start server and open `/admin` | Manager data is inaccessible | | | | Safe default |
 | P2A-AUTH-02 | Non-production explicit development flags | Open overview, device list, and detail | Dashboard is locally accessible | | | | DEVELOPMENT ONLY |
 | P2A-AUTH-03 | Real Google test OAuth app and allow-list | Sign in as allowed Manager and non-allowed user | Allowed Manager succeeds; other user is denied | | | | Required before staging |
@@ -89,3 +89,45 @@ Use this evidence format for each executed check:
 | P2A-SHOT-01 | Disposable synthetic PNG/JPEG | Upload and view through Manager route | Private generated files/hashes; unauthenticated read denied | | | | No real screenshots |
 | P2A-RET-01 | Disposable expired screenshot | Run `npm run retention:cleanup` | Only confined expired file/metadata removed; audit written | | | | Retention approval required |
 | P2A-PRIV-01 | Synthetic dashboard data | Review all labels | Sources are distinct; no employee-activity inference | | | | No productivity score |
+
+## Phase 2B Agent synchronization end-to-end
+
+Use a disposable local enrollment token, synthetic process names/content where possible, and a company-authorized standard Windows test account. Do not record the token or DPAPI-protected file contents as evidence. The current Phase 2A dashboard requires explicit development Manager mode or configured Google authorization; never weaken production Manager access for this test.
+
+1. Start Docker Desktop, then run `docker compose -f docker-compose.dev.yml up -d` and `docker compose -f docker-compose.dev.yml --profile test up -d postgres-test`. Verify both PostgreSQL services are healthy and use separate ports/volumes.
+2. In `server`, create the ignored `.env` from `.env.example`, set a disposable enrollment token of at least 32 characters and a private absolute screenshot root, deploy migrations, and start the central server.
+3. Set the Agent's `XUGAR_SERVER_SYNC_ENABLED=true`, `XUGAR_SERVER_BASE_URL=http://localhost:3000`, and matching disposable `XUGAR_ENROLLMENT_TOKEN`. Keep the committed screenshot interval at 300 seconds unless a short manual-test override is clearly recorded.
+4. Start the visible WPF Agent as a standard non-administrator user. Verify it remains visible and reports synchronization enabled, then enrolled, without displaying either token or device secret.
+5. Open the Manager Dashboard in explicitly authorized development mode and verify exactly one device appears with the expected synthetic/test hostname and Agent/OS metadata.
+6. Wait at least one heartbeat interval. Verify the WPF last-heartbeat field advances and central `lastHeartbeatAt`/online status updates.
+7. Verify current process data arrives and replaces prior state rather than creating a historical row for every sample. Confirm command-line arguments are absent.
+8. Open Notepad, wait for a process sample, close Notepad, and wait for another sample.
+9. Verify one sampled `START` and `STOP` pair appears centrally, allowing for Windows application/PID behavior. Resending the same queued client event ID must not add a duplicate.
+10. Configure/assign a policy that enables monitoring and screenshots during a short approved test window. Display only synthetic, non-sensitive content, then allow one normal-desktop screenshot capture.
+11. Verify the screenshot metadata/file appears through the authenticated Manager path, has a server-generated storage key/hash, and is not under `server/public`. Retrying its capture ID must not create another row/file.
+12. Stop the central server (or disconnect only the test network) without stopping the Agent.
+13. Verify the Agent remains running and visibly reports offline/retrying rather than crashing or hiding.
+14. Open/close another safe application and confirm canonical local `telemetry.jsonl`, all three process CSV reports, and eligible local screenshots continue according to privacy policy.
+15. Verify the WPF pending queue count/bytes increase appropriately; heartbeat/current state should coalesce instead of accumulating every missed interval.
+16. Restart the central server/network and wait through retry backoff.
+17. Verify last successful upload advances and the persistent queue drains automatically.
+18. Verify no duplicate process events, Agent events, or screenshot captures were created after retry.
+19. Close/restart the Agent. Verify the same installation GUID and central device ID are reused and the UI returns to enrolled without issuing a new secret. Do not attempt to decrypt DPAPI content outside the same Windows user.
+20. Restart PostgreSQL without deleting volumes. Verify device, event, policy, and screenshot metadata persist.
+21. Change the assigned policy version/toggles/window, wait one policy-refresh interval, and verify the WPF policy version/status and effective intervals update.
+22. Move outside the approved schedule (or assign a non-current test window). Verify screenshot capture is skipped, a sanitized policy event is recorded, and no unrestricted screenshot begins when the server/policy is unavailable or the cache expires.
+23. Lock Windows for at least one eligible short test interval and, separately if approved, show a UAC secure-desktop prompt containing no sensitive content. Verify no lock-screen/UAC screenshot is captured and normal capture resumes later only when policy permits.
+24. Stop and Start monitoring from the visible UI. Verify both local monitoring and synchronization pause/resume cleanly and queued data survives the stop/restart.
+25. Disable synchronization (`XUGAR_SERVER_SYNC_ENABLED=false`) and restart. Verify the Agent launches with no server, uses the local 300/60 defaults, writes JSONL/CSV/PNG locally, and shows server sync disabled.
+
+Record these additional focused checks:
+
+| Test ID | Setup | Steps | Expected | Actual | PASS/FAIL | Evidence | Notes |
+|---|---|---|---|---|---|---|---|
+| P2B-DPAPI-01 | Same Windows user | Enroll, restart Agent, inspect only file type/permissions | Credential persists as opaque DPAPI bytes; secret absent from logs/UI/reports | | | | Do not publish bytes |
+| P2B-DPAPI-02 | Separate disposable Windows account | Attempt to reuse copied credential | Other user cannot decrypt `CurrentUser` data; Agent degrades safely | | | | No credential workarounds |
+| P2B-QUEUE-01 | Server stopped | Restart Agent with pending uploads | Queue survives and item/byte totals remain bounded | | | | No unrelated local deletion |
+| P2B-AUTH-01 | Revoke test device | Allow next request | UI shows authentication error; no automatic enrollment storm | | | | Restore deliberately |
+| P2B-POLICY-01 | No assigned policy | Start synchronized Agent | Screenshots denied; local process reports continue safely | | | | Disabled default is not permission |
+| P2B-POLICY-02 | Overnight timezone window | Test before/after midnight | Window follows configured timezone and end-exclusive semantics | | | | Record UTC/local times |
+| P2B-PRIV-01 | Review local and central records | Search for passwords/tokens/headers/command lines | None are present; process presence is not labeled activity time | | | | No productivity inference |

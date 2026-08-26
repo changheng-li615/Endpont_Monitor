@@ -1,6 +1,6 @@
 # Xugar Endpoint Monitor
 
-Xugar Endpoint Monitor is a transparent, company-authorized endpoint management and monitoring platform for company-owned Windows laptops. The repository contains the stable Phase 1/1.2 visible Windows Agent and the Phase 2A central-platform foundation. The Agent remains local-only until the separately gated Phase 2B integration.
+Xugar Endpoint Monitor is a transparent, company-authorized endpoint management and monitoring platform for company-owned Windows laptops. The repository contains the stable Phase 1/1.2 visible Windows Agent, the Phase 2A central platform, and the Phase 2B optional Agent synchronization layer.
 
 Xugar owns device health, approved periodic screenshots, complete process presence, and START/STOP events. ActivTrak remains the future source of truth for application/website activity, usage duration, active/passive status, productivity classification, and workforce analytics. Process presence must never be presented as employee activity or hours worked.
 
@@ -15,7 +15,7 @@ Xugar owns device health, approved periodic screenshots, complete process presen
 - Local file retention of 24 hours by default.
 - Resilient handling of inaccessible or short-lived processes.
 
-The Windows Agent makes no network calls in Phase 2A. It does not upload data, manage devices remotely, enforce application policy, install a Windows Service, start automatically, hide itself, capture command lines, keylog, capture the clipboard, collect credentials, activate a microphone or webcam, or bypass UAC/secure desktop.
+The Agent does not manage devices remotely, enforce application policy, install a Windows Service, start automatically, hide itself, capture command lines, keylog, capture the clipboard, collect user credentials, activate a microphone or webcam, or bypass UAC/secure desktop.
 
 ## Phase 2A central-platform capabilities
 
@@ -29,7 +29,17 @@ The Windows Agent makes no network calls in Phase 2A. It does not upload data, m
 - Manager authentication defaults to denied, with explicit local-development and Google Workspace/Auth.js boundaries.
 - ActivTrak configuration/schema placeholders only; webhook ingestion remains Phase 2C.
 
-Phase 2A does not modify the Windows Agent or add Phase 2B networking.
+## Phase 2B Agent synchronization
+
+- Synchronization is disabled by default; Phase 1 local-only operation needs no server.
+- A random installation GUID is persisted independently of user, network, and hardware identifiers.
+- Enrollment exchanges the bootstrap token once for a per-device secret. The secret is protected with Windows DPAPI `CurrentUser` and is never written to JSONL, CSV, settings, or logs.
+- Heartbeat and newest current-process state are coalesced; process events, screenshots, and bounded Agent events retain stable client UUIDs for retry idempotency.
+- A durable bounded file queue survives Agent/server restarts, uses atomic same-directory writes, applies exponential backoff with jitter, and keeps screenshot payload copies private under the Agent data root.
+- Central policy is cached with a local retrieval time. In synchronized mode, an unavailable, invalid, or expired policy denies new screenshots. Valid policy toggles and schedule windows gate screenshot/process collection. Local process telemetry continues safely while policy is temporarily unavailable.
+- The WPF window remains visible and shows enrollment, server, queue, upload, and policy status without exposing secrets.
+
+Phase 2B follows `LOCAL FIRST -> NETWORK SECOND`: canonical JSONL, derived CSV, and local PNG persistence complete before any eligible queue operation is created.
 
 ## Prerequisites
 
@@ -54,10 +64,11 @@ dotnet build Xugar.EndpointMonitor.sln -c Debug
 dotnet test Xugar.EndpointMonitor.sln -c Debug --no-build
 ```
 
-For the Phase 2A server:
+For the central server and its isolated integration-test database:
 
 ```powershell
 docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml --profile test up -d postgres-test
 Copy-Item .\server\.env.example .\server\.env
 # Replace every placeholder token/secret in server\.env before use.
 Set-Location .\server
@@ -75,6 +86,8 @@ docker compose -f docker-compose.dev.yml down
 ```
 
 Do not add `--volumes` without explicit approval.
+
+`npm test` explicitly loads committed local-only `server/.env.test`, verifies that its PostgreSQL host is loopback and its database name ends in `_test`, and deploys tracked migrations before Vitest. Developers do not set `DATABASE_URL` manually. The test suite deletes records only in the dedicated `xugar_endpoint_test` database on loopback port 55433.
 
 ### Manager authentication
 
@@ -102,6 +115,24 @@ The committed settings in `src/Xugar.Endpoint.Agent/appsettings.json` are:
 | Process interval | 60 seconds |
 | Retention | 24 hours |
 | Data root | `%LOCALAPPDATA%\Xugar\EndpointMonitor\Data` |
+| Server synchronization | Disabled |
+| Server URL | `http://localhost:3000` (explicit loopback development only) |
+| Heartbeat interval | 60 seconds |
+| Policy refresh | 300 seconds |
+| Policy cache maximum age | 900 seconds |
+| Upload queue | 1,000 items / 100 MiB / 168 hours |
+
+To exercise Phase 2B against the local development server, provide a disposable token that exactly matches the server's `XUGAR_ENROLLMENT_TOKEN`:
+
+```powershell
+$env:XUGAR_SERVER_SYNC_ENABLED = 'true'
+$env:XUGAR_SERVER_BASE_URL = 'http://localhost:3000'
+$env:XUGAR_ENROLLMENT_TOKEN = '<local-development-token-at-least-32-characters>'
+dotnet run --project .\src\Xugar.Endpoint.Agent\Xugar.Endpoint.Agent.csproj
+Remove-Item Env:XUGAR_SERVER_SYNC_ENABLED, Env:XUGAR_SERVER_BASE_URL, Env:XUGAR_ENROLLMENT_TOKEN
+```
+
+Arbitrary clear-text HTTP endpoints are rejected. Production endpoints must use HTTPS; TLS certificate validation is never disabled. The enrollment token is bootstrap-only and may be removed from the Agent environment after successful enrollment.
 
 For a clearly labeled manual development test, override the screenshot interval without changing the committed default:
 
@@ -126,6 +157,14 @@ The default layout is:
     process-summary.csv
     screenshots\
       yyyyMMddTHHmmssfffZ_monitor-1.png
+  sync\
+    installation-id
+    device-credential.bin
+    policy-cache.json
+    queue\
+      envelopes\
+      payloads\
+      corrupt\
 ```
 
 The application refuses a filesystem volume root as its data root, confines generated paths to the configured root, does not follow reparse-point directories during cleanup, and tolerates files that cannot be deleted. Local development data and build artifacts are excluded by `.gitignore`.
@@ -152,7 +191,7 @@ Process events are sampling-based: a process that starts and stops entirely betw
 
 If a CSV file is locked or cannot be written, canonical JSONL collection continues and a local operational warning is recorded. Retention cleanup treats CSV reports consistently with other files under the configured data root.
 
-See [architecture](docs/ARCHITECTURE.md), [privacy and data](docs/PRIVACY_AND_DATA.md), [Phase 2 API](docs/PHASE2_API.md), [security](docs/SECURITY.md), [operations](docs/OPERATIONS.md), [deployment](docs/DEPLOYMENT.md), [ActivTrak integration](docs/ACTIVTRAK_INTEGRATION.md), and the [manual test plan](docs/MANUAL_TEST_PLAN.md).
+See [architecture](docs/ARCHITECTURE.md), [Phase 2B Agent synchronization](docs/PHASE2B_AGENT_SYNC.md), [privacy and data](docs/PRIVACY_AND_DATA.md), [Phase 2 API](docs/PHASE2_API.md), [security](docs/SECURITY.md), [operations](docs/OPERATIONS.md), [deployment](docs/DEPLOYMENT.md), [ActivTrak integration](docs/ACTIVTRAK_INTEGRATION.md), and the [manual test plan](docs/MANUAL_TEST_PLAN.md).
 
 ## Current limitations
 
@@ -161,6 +200,7 @@ See [architecture](docs/ARCHITECTURE.md), [privacy and data](docs/PRIVACY_AND_DA
 - Publisher/signature metadata is not collected in Phase 1.
 - Process categories and foreground samples are approximate reporting metadata, not security or exact usage evidence.
 - The Service project is an inert future placeholder and is neither installed nor used by the agent.
-- There is no tray icon, installer, code signing, autostart, Agent upload queue, Agent/server synchronization, ActivTrak webhook ingestion, or enforcement.
+- There is no tray icon, installer, code signing, autostart, ActivTrak webhook ingestion, remote control, or enforcement.
+- The current server contract has one approved monitoring schedule shared by process and screenshot policy toggles; it does not yet express independent schedule-window sets for each telemetry type.
+- DPAPI `CurrentUser` binds the device credential to the interactive Windows account. Moving synchronization ownership to a future Windows Service would require an explicit credential-migration design; the Service remains inert in Phase 2B.
 - Manager authentication is not production-ready without real Google Workspace OAuth credentials and an explicit Manager allow-list.
-- Prisma 7.9.1 currently reports `GHSA-ggr8-5vv4-36mx` in a local CLI configuration dependency. It is not a remote request path; adopt an upstream-supported fix before production hardening.

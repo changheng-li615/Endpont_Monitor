@@ -82,6 +82,24 @@ public static class StoragePaths
     public static string GetProcessSummaryCsvPath(string dataRoot, DateTimeOffset timestampUtc) =>
         GetDailyFilePath(dataRoot, timestampUtc, "process-summary.csv");
 
+    public static string GetSynchronizationDirectory(string dataRoot)
+    {
+        var safeRoot = ResolveDataRoot(dataRoot);
+        return EnsureUnderRoot(safeRoot, Path.Combine(safeRoot, "sync"));
+    }
+
+    public static string GetInstallationIdentityPath(string dataRoot) =>
+        EnsureUnderRoot(dataRoot, Path.Combine(GetSynchronizationDirectory(dataRoot), "installation-id"));
+
+    public static string GetDeviceCredentialPath(string dataRoot) =>
+        EnsureUnderRoot(dataRoot, Path.Combine(GetSynchronizationDirectory(dataRoot), "device-credential.bin"));
+
+    public static string GetPolicyCachePath(string dataRoot) =>
+        EnsureUnderRoot(dataRoot, Path.Combine(GetSynchronizationDirectory(dataRoot), "policy-cache.json"));
+
+    public static string GetUploadQueueDirectory(string dataRoot) =>
+        EnsureUnderRoot(dataRoot, Path.Combine(GetSynchronizationDirectory(dataRoot), "queue"));
+
     private static string GetDailyFilePath(
         string dataRoot,
         DateTimeOffset timestampUtc,

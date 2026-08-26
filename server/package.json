@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "pretest": "prisma migrate deploy --config prisma.test.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",

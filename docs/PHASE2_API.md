@@ -1,4 +1,4 @@
-# Phase 2 API — Phase 2A
+# Phase 2 API — Phase 2B-compatible contract
 
 All endpoints use JSON unless stated otherwise. Request objects are strict and bounded; unknown fields such as command-line arguments are rejected. Errors do not echo secrets or submitted telemetry.
 
@@ -31,15 +31,15 @@ Accepts at most 512 processes with name, PID, nullable path/version/memory, and 
 
 ### `POST /api/v1/devices/{id}/process-events`
 
-Accepts 1–512 `START`/`STOP` records. Other lifecycle types are rejected. Historical events are separate from current state.
+Accepts 1–512 `START`/`STOP` records. Other lifecycle types are rejected. Phase 2B supplies optional `clientEventId` UUIDs. `(deviceId, clientEventId)` is unique and duplicate retries are ignored. Historical events are separate from current state.
 
 ### `POST /api/v1/devices/{id}/screenshots`
 
-Accepts multipart `file`, `capturedAt`, `monitorIndex`, and optional dimensions. Only bounded PNG/JPEG content with matching signature is accepted. The filename is ignored; the server creates a confined key and SHA-256. Binary data is outside PostgreSQL.
+Accepts multipart `file`, `capturedAt`, `monitorIndex`, optional dimensions, and optional `captureId`. Only bounded PNG/JPEG content with matching signature is accepted. The filename is ignored; the server creates a confined key and SHA-256. `(deviceId, captureId)` is unique: an identical retry returns the existing result, while different content with the same ID returns `409`. Binary data is outside PostgreSQL.
 
 ### `POST /api/v1/devices/{id}/events`
 
-Accepts up to 100 bounded `INFO`, `WARNING`, or `ERROR` operational events. It is not an unrestricted log endpoint.
+Accepts up to 100 bounded `INFO`, `WARNING`, or `ERROR` operational events. Optional `clientEventId` UUIDs are deduplicated per device. It is not an unrestricted log endpoint.
 
 ### `GET /api/v1/devices/{id}/policy`
 
@@ -49,6 +49,10 @@ Returns a versioned policy and local-time schedule windows. Without a valid assi
 
 `GET /api/admin/screenshots/{id}` requires an authorized Manager, resolves only the database-owned key beneath the configured root, streams private/no-store content, and audits the view. Browser-provided filesystem paths are never accepted.
 
+## Agent behavior
+
+The Phase 2B client uses this contract without inventing another authentication mechanism. It coalesces heartbeat/current state, gives durable history stable UUIDs, and does not queue policy GET requests. HTTP is loopback-development-only; production uses HTTPS.
+
 ## Deferred
 
-Phase 2A does not include Agent networking/queues or ActivTrak webhooks/live calls. Those remain Phase 2B and 2C respectively.
+ActivTrak webhooks, fixture ingestion, ActivConnect, and live calls remain Phase 2C.

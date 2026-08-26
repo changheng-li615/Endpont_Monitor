@@ -14,6 +14,7 @@ public sealed class MonitoringCoordinator(
     IScreenshotCapture screenshotCapture,
     ILocalTelemetryStore telemetryStore,
     IProcessReportWriter processReportWriter,
+    AgentSynchronizationCoordinator synchronizationCoordinator,
     RetentionCleanup retentionCleanup,
     ILogger<MonitoringCoordinator> logger) : IAsyncDisposable, IDisposable
 {
@@ -25,6 +26,8 @@ public sealed class MonitoringCoordinator(
     private DateTimeOffset? _lastScreenshotUtc;
     private DateTimeOffset? _lastProcessSnapshotUtc;
     private bool _disposed;
+    private PolicyDecisionReason? _lastProcessSkipReason;
+    private PolicyDecisionReason? _lastScreenshotSkipReason;
 
     public event EventHandler<MonitoringProgress>? ProgressChanged;
 
@@ -43,6 +46,7 @@ public sealed class MonitoringCoordinator(
                 CreateEvent("monitoring", "Information", "Monitoring started."),
                 cancellationToken).ConfigureAwait(false);
             await CleanupAndLogAsync(cancellationToken).ConfigureAwait(false);
+            await TryStartSynchronizationAsync(cancellationToken).ConfigureAwait(false);
 
             _monitoringCancellation?.Dispose();
             _monitoringCancellation = new CancellationTokenSource();
@@ -78,6 +82,7 @@ public sealed class MonitoringCoordinator(
             await TryWriteOperationalEventAsync(
                 CreateEvent("monitoring", "Information", "Monitoring stopped."),
                 cancellationToken).ConfigureAwait(false);
+            await TryStopSynchronizationAsync(cancellationToken).ConfigureAwait(false);
             Publish(isRunning: false, status: "Monitoring stopped", detail: "No monitoring loops are running.");
         }
         finally
@@ -108,18 +113,48 @@ public sealed class MonitoringCoordinator(
 
     private Task RunLoopsAsync(CancellationToken cancellationToken)
     {
-        var processLoop = PeriodicTaskRunner.RunAsync(
+        var processLoop = RunPolicyAwareLoopAsync(
+            PolicyActivity.ProcessMonitoring,
             CaptureProcessesAsync,
-            TimeSpan.FromSeconds(configuration.Monitoring.ProcessIntervalSeconds),
-            timeProvider,
             cancellationToken);
-        var screenshotLoop = PeriodicTaskRunner.RunAsync(
+        var screenshotLoop = RunPolicyAwareLoopAsync(
+            PolicyActivity.ScreenshotCapture,
             CaptureScreenshotsAsync,
-            TimeSpan.FromSeconds(configuration.Monitoring.ScreenshotIntervalSeconds),
-            timeProvider,
             cancellationToken);
 
         return Task.WhenAll(processLoop, screenshotLoop);
+    }
+
+    private async Task RunPolicyAwareLoopAsync(
+        PolicyActivity activity,
+        Func<CancellationToken, Task> operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                var decision = synchronizationCoordinator.GetPolicyDecision(activity);
+                if (decision.AllowLocalCapture)
+                {
+                    ClearSkipReason(activity);
+                    await operation(cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await WritePolicySkipOnceAsync(activity, decision, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                await Task.Delay(
+                    TimeSpan.FromSeconds(decision.IntervalSeconds),
+                    timeProvider,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private async Task CaptureProcessesAsync(CancellationToken cancellationToken)
@@ -135,6 +170,7 @@ public sealed class MonitoringCoordinator(
                 .WriteProcessSnapshotAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
             await TryWriteProcessReportsAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            await TrySynchronizeProcessSnapshotAsync(snapshot, cancellationToken).ConfigureAwait(false);
 
             lock (_progressGate)
             {
@@ -197,6 +233,7 @@ public sealed class MonitoringCoordinator(
                 await telemetryStore
                     .WriteScreenshotMetadataAsync(screenshots, cancellationToken)
                     .ConfigureAwait(false);
+                await TrySynchronizeScreenshotsAsync(screenshots, cancellationToken).ConfigureAwait(false);
 
                 lock (_progressGate)
                 {
@@ -308,6 +345,125 @@ public sealed class MonitoringCoordinator(
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Could not write an operational event to local telemetry.");
+            return;
+        }
+
+        try
+        {
+            await synchronizationCoordinator
+                .OnOperationalEventPersistedAsync(operationalEvent, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Operational event synchronization staging failed after local persistence succeeded.");
+        }
+    }
+
+    private async Task TryStartSynchronizationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await synchronizationCoordinator.StartAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Server synchronization could not start; local monitoring will continue safely.");
+        }
+    }
+
+    private async Task TryStopSynchronizationAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await synchronizationCoordinator.StopAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Server synchronization could not stop cleanly; the persistent queue remains on disk.");
+        }
+    }
+
+    private async Task TrySynchronizeProcessSnapshotAsync(
+        ProcessSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await synchronizationCoordinator.OnProcessSnapshotPersistedAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Process synchronization staging failed after local persistence succeeded.");
+        }
+    }
+
+    private async Task TrySynchronizeScreenshotsAsync(
+        IReadOnlyList<ScreenshotMetadata> screenshots,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await synchronizationCoordinator.OnScreenshotsPersistedAsync(screenshots, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Screenshot synchronization staging failed after local persistence succeeded.");
+        }
+    }
+
+    private async Task WritePolicySkipOnceAsync(
+        PolicyActivity activity,
+        PolicyDecision decision,
+        CancellationToken cancellationToken)
+    {
+        var previous = activity == PolicyActivity.ScreenshotCapture
+            ? _lastScreenshotSkipReason
+            : _lastProcessSkipReason;
+        if (previous == decision.Reason)
+        {
+            return;
+        }
+
+        if (activity == PolicyActivity.ScreenshotCapture)
+        {
+            _lastScreenshotSkipReason = decision.Reason;
+        }
+        else
+        {
+            _lastProcessSkipReason = decision.Reason;
+        }
+
+        var category = activity == PolicyActivity.ScreenshotCapture
+            ? "SCREENSHOT_SKIPPED_POLICY"
+            : "PROCESS_SNAPSHOT_SKIPPED_POLICY";
+        await TryWriteOperationalEventAsync(
+            CreateEvent(
+                category,
+                "Information",
+                $"{activity} skipped because central policy state is {decision.Reason}."),
+            cancellationToken).ConfigureAwait(false);
+        Publish(
+            isRunning: true,
+            status: "Monitoring active with central policy",
+            detail: $"{activity} is currently paused: {decision.Reason}.");
+    }
+
+    private void ClearSkipReason(PolicyActivity activity)
+    {
+        if (activity == PolicyActivity.ScreenshotCapture)
+        {
+            _lastScreenshotSkipReason = null;
+        }
+        else
+        {
+            _lastProcessSkipReason = null;
         }
     }
 

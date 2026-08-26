@@ -45,6 +45,7 @@ export const currentProcessesSchema = z
 
 export const processEventSchema = z
   .object({
+    clientEventId: z.uuid().nullable().optional(),
     occurredAt: timestamp,
     eventType: z.enum(["START", "STOP"]),
     processName: boundedText(255),
@@ -62,6 +63,7 @@ export const processEventsSchema = z
 
 export const agentEventSchema = z
   .object({
+    clientEventId: z.uuid().nullable().optional(),
     occurredAt: timestamp,
     eventType: boundedText(64),
     severity: z.enum(["INFO", "WARNING", "ERROR"]),
@@ -75,6 +77,7 @@ export const agentEventsSchema = z
 
 export const screenshotMetadataSchema = z
   .object({
+    captureId: z.uuid().nullable().optional(),
     capturedAt: timestamp,
     monitorIndex: z.coerce.number().int().min(1).max(64),
     width: z.coerce.number().int().positive().max(32768).nullable().optional(),

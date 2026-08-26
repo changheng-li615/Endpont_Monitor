@@ -8,9 +8,11 @@ import { PUT as currentProcessesRoute } from "@/app/api/v1/devices/[id]/processe
 import { POST as processEventsRoute } from "@/app/api/v1/devices/[id]/process-events/route";
 import { GET as policyRoute } from "@/app/api/v1/devices/[id]/policy/route";
 import { POST as screenshotsRoute } from "@/app/api/v1/devices/[id]/screenshots/route";
+import { POST as agentEventsRoute } from "@/app/api/v1/devices/[id]/events/route";
 import { prisma } from "@/lib/prisma";
 import { verifyDeviceSecret } from "@/lib/security";
 import { getDashboardOverview, getDeviceList } from "@/lib/dashboard";
+import { getDeviceDetail } from "@/lib/device-detail";
 
 const enrollmentToken = "phase2a-test-enrollment-token-not-production";
 const screenshotRoot = path.resolve("runtime", "integration-screenshots");
@@ -157,6 +159,21 @@ describe("current processes and lifecycle events", () => {
     expect((await prisma.processEvent.findMany({ orderBy: { createdAt: "asc" } })).map((event) => event.eventType)).toEqual(["START", "STOP"]);
   });
 
+  it("deduplicates retried process events by stable client event ID", async () => {
+    const device = await enroll();
+    const event = { clientEventId: randomUUID(), occurredAt: now, eventType: "START", ...notepad };
+    const request = () => jsonRequest(
+      "http://localhost/events",
+      "POST",
+      { events: [event] },
+      device.deviceSecret,
+      device.deviceId,
+    );
+    expect((await processEventsRoute(request(), context(device.deviceId))).status).toBe(202);
+    expect((await processEventsRoute(request(), context(device.deviceId))).status).toBe(202);
+    expect(await prisma.processEvent.count()).toBe(1);
+  });
+
   it("rejects invalid lifecycle events", async () => {
     const device = await enroll();
     const response = await processEventsRoute(jsonRequest("http://localhost/events", "POST", { events: [{ occurredAt: now, eventType: "KILL", ...notepad }] }, device.deviceSecret, device.deviceId), context(device.deviceId));
@@ -195,12 +212,65 @@ describe("dashboard queries", () => {
     expect(overview.processEvents.map((event) => event.processName)).toEqual(["notepad"]);
     expect(overview.activTrakAlarms.map((event) => event.alarmName)).toEqual(["Synthetic alarm"]);
   });
+
+  it("orders event history newest first and fetches only the requested page", async () => {
+    const device = await enroll();
+    const firstOccurredAt = new Date("2026-08-26T00:00:00.000Z");
+    await prisma.processEvent.createMany({
+      data: Array.from({ length: 30 }, (_, index) => ({
+        deviceId: device.deviceId,
+        occurredAt: new Date(firstOccurredAt.getTime() + index * 1_000),
+        eventType: index % 2 === 0 ? "START" as const : "STOP" as const,
+        processName: `process-${index}`,
+        pid: 1_000 + index,
+      })),
+    });
+
+    const firstPage = await getDeviceDetail(device.deviceId, { eventPage: "1", eventPageSize: "25" });
+    const finalPage = await getDeviceDetail(device.deviceId, { eventPage: "2", eventPageSize: "25" });
+    expect(firstPage?.processEvents).toHaveLength(25);
+    expect(firstPage?.processEvents[0]?.processName).toBe("process-29");
+    expect(finalPage?.processEvents).toHaveLength(5);
+    expect(finalPage?.processEvents[0]?.processName).toBe("process-4");
+    expect(finalPage?.eventPagination.totalItems).toBe(30);
+  });
+
+  it("paginates screenshot metadata without exposing or loading storage content", async () => {
+    const device = await enroll();
+    const firstCapturedAt = new Date("2026-08-26T00:00:00.000Z");
+    await prisma.screenshot.createMany({
+      data: Array.from({ length: 13 }, (_, index) => ({
+        deviceId: device.deviceId,
+        capturedAt: new Date(firstCapturedAt.getTime() + index * 1_000),
+        monitorIndex: (index % 2) + 1,
+        storageKey: `${device.deviceId}/test-${index}.png`,
+        mimeType: "image/png",
+        width: 1920,
+        height: 1080,
+        sizeBytes: 100,
+        sha256: index.toString(16).padStart(64, "0"),
+      })),
+    });
+
+    const detail = await getDeviceDetail(device.deviceId, { screenshotPage: "2", screenshotPageSize: "12" });
+    expect(detail?.screenshots).toHaveLength(1);
+    expect(detail?.screenshots[0]?.capturedAt.toISOString()).toBe(firstCapturedAt.toISOString());
+    expect(detail?.screenshotPagination.totalItems).toBe(13);
+    expect(detail?.screenshots[0]).not.toHaveProperty("storageKey");
+  });
 });
 
 describe("screenshot upload", () => {
-  function screenshotRequest(device: Enrollment, bytes: Buffer, mimeType: string, fileName = "untrusted-name.png") {
+  function screenshotRequest(
+    device: Enrollment,
+    bytes: Buffer,
+    mimeType: string,
+    fileName = "untrusted-name.png",
+    captureId?: string,
+  ) {
     const form = new FormData();
     form.set("capturedAt", now); form.set("monitorIndex", "1"); form.set("width", "100"); form.set("height", "50");
+    if (captureId) form.set("captureId", captureId);
     form.set("file", new File([Uint8Array.from(bytes)], fileName, { type: mimeType }));
     return new Request("http://localhost/screenshots", { method: "POST", headers: { authorization: `Bearer ${device.deviceSecret}`, "x-xugar-device-id": device.deviceId }, body: form });
   }
@@ -215,6 +285,37 @@ describe("screenshot upload", () => {
     const row = await prisma.screenshot.findFirstOrThrow();
     expect(row.storageKey).not.toContain("employee-file-name");
     expect(row.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+  });
+
+  it("returns the original screenshot for a retried capture ID without duplicating storage", async () => {
+    const device = await enroll();
+    const captureId = randomUUID();
+    const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+    expect((await screenshotsRoute(
+      screenshotRequest(device, bytes, "image/png", "first.png", captureId),
+      context(device.deviceId),
+    )).status).toBe(201);
+    expect((await screenshotsRoute(
+      screenshotRequest(device, bytes, "image/png", "retry.png", captureId),
+      context(device.deviceId),
+    )).status).toBe(200);
+    expect(await prisma.screenshot.count()).toBe(1);
+  });
+
+  it("rejects reuse of a capture ID with different screenshot content", async () => {
+    const device = await enroll();
+    const captureId = randomUUID();
+    const first = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+    const different = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    expect((await screenshotsRoute(
+      screenshotRequest(device, first, "image/png", "first.png", captureId),
+      context(device.deviceId),
+    )).status).toBe(201);
+    expect((await screenshotsRoute(
+      screenshotRequest(device, different, "image/png", "different.png", captureId),
+      context(device.deviceId),
+    )).status).toBe(409);
+    expect(await prisma.screenshot.count()).toBe(1);
   });
 
   it("rejects an invalid MIME type and content", async () => {
@@ -232,5 +333,28 @@ describe("screenshot upload", () => {
     process.env.XUGAR_SCREENSHOT_MAX_BYTES = "10485760";
     response = await screenshotsRoute(screenshotRequest({ ...device, deviceSecret: "wrong" }, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]), "image/png"), context(device.deviceId));
     expect(response.status).toBe(401);
+  });
+});
+
+describe("agent event upload", () => {
+  it("deduplicates retried Agent events by stable client event ID", async () => {
+    const device = await enroll();
+    const event = {
+      clientEventId: randomUUID(),
+      occurredAt: now,
+      eventType: "SERVER_CONNECTED",
+      severity: "INFO",
+      message: "Connected without secret material.",
+    };
+    const request = () => jsonRequest(
+      "http://localhost/events",
+      "POST",
+      { events: [event] },
+      device.deviceSecret,
+      device.deviceId,
+    );
+    expect((await agentEventsRoute(request(), context(device.deviceId))).status).toBe(202);
+    expect((await agentEventsRoute(request(), context(device.deviceId))).status).toBe(202);
+    expect(await prisma.agentEvent.count()).toBe(1);
   });
 });

@@ -1,4 +1,4 @@
-# Privacy and Data — Phase 2A Boundary
+# Privacy and Data — Phase 2B Boundary
 
 ## Source-of-truth separation
 
@@ -57,7 +57,7 @@ Publisher/signature information is not implemented in this phase.
 
 ## Storage and access
 
-The Phase 1 Agent still stores data locally only and has no Phase 2A network client. Its default root is:
+The Agent always stores Phase 1 data locally first. Server synchronization is optional and disabled by default. Its default root is:
 
 ```text
 %LOCALAPPDATA%\Xugar\EndpointMonitor\Data
@@ -65,15 +65,17 @@ The Phase 1 Agent still stores data locally only and has no Phase 2A network cli
 
 PNG images are stored separately from JSONL; screenshot pixel data is never logged as text. The application does not add application-level encryption in Phase 1 and relies on Windows account permissions and any organization-managed full-disk protection. Access controls and encryption requirements must be reviewed before wider use.
 
-Retention cleanup defaults to 24 hours, skips filesystem links/reparse points, refuses a whole filesystem root, and tolerates inaccessible files. A file in use or otherwise inaccessible can survive past its cutoff until a later cleanup succeeds.
+Retention cleanup defaults to 24 hours, skips filesystem links/reparse points, refuses a whole filesystem root, and tolerates inaccessible files. A file in use or otherwise inaccessible can survive past its cutoff until a later cleanup succeeds. Identity, DPAPI credential, policy cache, and bounded queue live under `sync`; Phase 1 retention excludes that subtree and the queue enforces its own item/byte/age limits.
 
-The separate Phase 2A server can receive synthetic/manual API data but is not contacted by the Agent. PostgreSQL stores device metadata, hash-only device credentials, heartbeats, current processes, START/STOP events, bounded Agent events, screenshot metadata, policy, normalized ActivTrak placeholders, and Manager audit records. Screenshot images remain in private configured filesystem storage, never PostgreSQL or `public`.
+When explicitly enabled, the Phase 2B Agent enrolls and synchronizes approved heartbeats, current processes, START/STOP events, screenshots, and bounded health events to the Phase 2A server. PostgreSQL stores device metadata, hash-only server credential verifiers, heartbeats, current processes, lifecycle/Agent events, screenshot metadata, policy, normalized ActivTrak placeholders, and Manager audit records. Screenshot images remain in private configured filesystem storage, never PostgreSQL or `public`.
+
+Central policy is privacy-denying for screenshots: missing, malformed, expired, disabled, or out-of-window policy does not authorize a new capture. A still-fresh cached policy can support offline operation within its approved schedule. Local process JSONL/CSV may continue during a temporary policy outage, but it is not queued for central synchronization without valid permission. Heartbeat is operational health and is not employee activity evidence.
 
 Enrollment tokens, device secrets, authorization headers, OAuth secrets, and webhook tokens must not be logged or persisted in plaintext. Screenshot access requires Manager authorization and creates an audit event. Development Manager authentication is not suitable for employee data or public deployment.
 
 ## Required review before expansion
 
-Before Agent/server integration or deployment beyond controlled prototyping, management should explicitly approve:
+Before deployment beyond controlled prototyping, management should explicitly approve:
 
 - the screenshot purpose, interval, and employee notice;
 - every process and device field;

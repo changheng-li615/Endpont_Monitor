@@ -94,6 +94,7 @@ model DeviceCurrentProcess {
 model ProcessEvent {
   id             String           @id @default(uuid()) @db.Uuid
   deviceId       String           @db.Uuid
+  clientEventId  String?          @db.Uuid
   occurredAt     DateTime         @db.Timestamptz(3)
   eventType      ProcessEventType
   processName    String           @db.VarChar(255)
@@ -107,11 +108,13 @@ model ProcessEvent {
 
   @@index([deviceId, occurredAt])
   @@index([occurredAt])
+  @@unique([deviceId, clientEventId])
 }
 
 model Screenshot {
   id           String   @id @default(uuid()) @db.Uuid
   deviceId     String   @db.Uuid
+  captureId    String?  @db.Uuid
   capturedAt   DateTime @db.Timestamptz(3)
   monitorIndex Int
   storageKey   String   @unique @db.VarChar(1024)
@@ -125,20 +128,23 @@ model Screenshot {
 
   @@index([deviceId, capturedAt])
   @@index([capturedAt])
+  @@unique([deviceId, captureId])
 }
 
 model AgentEvent {
-  id         String             @id @default(uuid()) @db.Uuid
-  deviceId   String             @db.Uuid
-  occurredAt DateTime           @db.Timestamptz(3)
-  eventType  String             @db.VarChar(64)
-  severity   AgentEventSeverity
-  message    String             @db.VarChar(1000)
-  createdAt  DateTime           @default(now()) @db.Timestamptz(3)
-  device     Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  id            String             @id @default(uuid()) @db.Uuid
+  deviceId      String             @db.Uuid
+  clientEventId String?         @db.Uuid
+  occurredAt    DateTime           @db.Timestamptz(3)
+  eventType     String             @db.VarChar(64)
+  severity      AgentEventSeverity
+  message       String             @db.VarChar(1000)
+  createdAt     DateTime           @default(now()) @db.Timestamptz(3)
+  device        Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, occurredAt])
   @@index([occurredAt])
+  @@unique([deviceId, clientEventId])
 }
 
 model MonitoringPolicy {

@@ -1,23 +1,25 @@
-# Platform Architecture — Phase 2A
+# Platform Architecture — Phase 2B
 
 ## Current phase boundary
 
-Phase 2A adds an independent central server without connecting it to the Windows Agent. The Phase 1/1.2 WPF implementation, local JSONL canonical record, derived CSV reports, 300-second screenshot default, and local retention remain unchanged.
+Phase 2B adds optional synchronization from the visible Agent to the Phase 2A server. The Phase 1/1.2 local JSONL canonical record, derived CSV reports, 300-second standalone screenshot default, screenshot protections, and local retention remain intact.
 
 ```text
-Visible Windows Agent (Phase 1/1.2, local only)
-  -> local JSONL + CSV + PNG
+Visible Windows Agent
+  -> local JSONL + CSV + PNG (always first)
+  -> bounded persistent queue
+  -> authenticated Phase 2A APIs
+  <- cached central monitoring policy
 
-Phase 2A central platform (not yet contacted by Agent)
-  -> Next.js route handlers and server components
-  -> Prisma driver adapter -> PostgreSQL
+Central platform
+  -> Next.js route handlers -> Prisma -> PostgreSQL
   -> private ScreenshotStorage
   -> authenticated Manager pages
 
 ActivTrak (Phase 2C integration not implemented)
 ```
 
-Agent transport, DPAPI credential storage, policy consumption, and offline queues belong to Phase 2B. ActivTrak webhooks belong to Phase 2C.
+ActivTrak webhooks and ActivConnect remain Phase 2C and are not part of this data path.
 
 ## Central server boundaries
 
@@ -32,7 +34,7 @@ Manager authorization is denied by default. Development mode requires two explic
 
 ## Windows Agent boundaries
 
-The Phase 1 application is a normal, visible WPF process in the signed-in user's Windows session. Screenshot capture stays in that process because a future Windows Service must not attempt desktop capture across session boundaries. All Agent output remains on local disk; no network client exists in the Agent during Phase 2A.
+The application remains a normal, visible WPF process in the signed-in user's Windows session. Screenshot capture and Phase 2B networking stay in that process because a future Windows Service must not attempt desktop capture across session boundaries.
 
 ```text
 Visible WPF window
@@ -41,9 +43,13 @@ Visible WPF window
                        -> IProcessReportWriter -> derived daily CSV
        -> screenshot loop -> IScreenshotCapture -> PNG + JSONL metadata
        -> RetentionCleanup -> configured data root only
+       -> AgentSynchronizationCoordinator
+            -> installation identity + DPAPI credential
+            -> central policy cache/schedule evaluator
+            -> file-backed upload queue -> typed HTTP client
 ```
 
-Each loop executes one operation at a time and waits on a cancellable `PeriodicTimer`. The process and screenshot loops are independent, but an individual loop cannot overlap itself. Start/Stop and application shutdown cancel both loops.
+Each monitoring loop executes one operation at a time and uses cancellable delays. When synchronization is disabled, committed Phase 1 intervals apply unchanged. When enabled, a valid cached central policy supplies intervals and schedule permission. Missing/expired policy denies screenshots; local process snapshots continue safely but are not synchronized until policy is valid. Start/Stop and application shutdown cancel monitoring and synchronization loops.
 
 ## Projects
 
@@ -59,6 +65,8 @@ Platform-light contracts and testable logic:
 - UTC screenshot filename generation;
 - retention cutoff and cleanup;
 - cancellable periodic task runner.
+- atomic installation identity, protected-credential store abstraction, policy cache and schedule evaluation;
+- typed server contracts, HTTP client, queue, mapping, backoff, and upload processor.
 
 ### `src/Xugar.Endpoint.Agent`
 
@@ -71,6 +79,7 @@ Windows/WPF implementation:
 - normal-input-desktop check before screenshots;
 - Win32 monitor enumeration and GDI screen capture encoded as PNG;
 - orchestration, UI progress, and operational events.
+- Windows DPAPI `CurrentUser` credential protection and compact synchronization status.
 
 The executable manifest requests `asInvoker`, disables UI access, and declares per-monitor DPI awareness. It does not request elevation.
 
@@ -80,7 +89,7 @@ An inert .NET Worker placeholder for a later approved phase. It logs that it is 
 
 ### `tests/Xugar.Endpoint.Tests`
 
-xUnit tests cover validation, paths, naming, JSON/JSONL behavior, retention boundaries and cutoff, and loop cancellation/non-overlap. Windows desktop behavior remains a manual test because it requires an interactive session.
+xUnit tests cover Phase 1 regression plus identity, credential abstraction, API contracts/authentication, enrollment, policy/cache/schedule, queue durability/bounds/corruption, mapping, idempotent payload IDs, retry/backoff, and synchronization retention boundaries. Windows desktop and DPAPI OS behavior remain manual tests because they require an interactive Windows session.
 
 ## Configuration
 
@@ -93,7 +102,7 @@ Validated ranges are:
 - retention: 1 to 8,760 hours;
 - data root: a fully qualified, non-volume-root path after environment expansion.
 
-The five-second minimum exists only to support controlled development testing. The committed screenshot default remains 300 seconds.
+The five-second local minimum exists only to support controlled development testing. The committed standalone screenshot default remains 300 seconds. Phase 2B settings and aliases are documented in `PHASE2B_AGENT_SYNC.md`; HTTP is limited to explicit loopback development and production requires HTTPS.
 
 ## Storage and retention safety
 
@@ -103,7 +112,11 @@ JSONL is canonical. After a process snapshot is successfully persisted to JSONL,
 
 Process events compare consecutive successful snapshots by PID. When both executable paths are available, the normalized paths must also agree; otherwise matching falls back to process name. The first snapshot in each agent run is a baseline. Categories are conservative path-derived human labels only and are not an enforcement input.
 
-Cleanup compares file last-write timestamps with a UTC cutoff. It performs non-recursive deletes only after every candidate has been normalized and checked against the configured root. Directory reparse points and reparse-point files are skipped, preventing cleanup from following junctions or links outside the data tree. In-use and access-denied files are counted as failures instead of crashing monitoring.
+Cleanup compares file last-write timestamps with a UTC cutoff. It performs non-recursive deletes only after every candidate has been normalized and checked against the configured root. Directory reparse points and reparse-point files are skipped, preventing cleanup from following junctions or links outside the data tree. In-use and access-denied files are counted as failures instead of crashing monitoring. The `sync` subtree is excluded from Phase 1 retention: credentials/identity/cache persist, while `FileUploadQueue` independently applies its configured age, item, and byte limits.
+
+## Synchronization and idempotency
+
+Heartbeat and current-process envelopes are replaceable and coalesced. Process/Agent events and screenshot captures receive client UUIDs before durable enqueue. Server uniqueness constraints on `(deviceId, clientEventId)` and `(deviceId, captureId)` make retries safe. Screenshot bytes are copied into private queue payload storage so local screenshot retention cannot invalidate a pending upload. Eviction is deterministic: oldest heartbeat/current state first, then Agent events, screenshots, and process events last. Any screenshot loss records a sanitized local queue-limit event.
 
 ## Screenshot boundary
 

@@ -1,5 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { loadTestEnvironment } from "./tests/load-test-environment.ts";
+
+loadTestEnvironment();
 
 export default defineConfig({
   resolve: {

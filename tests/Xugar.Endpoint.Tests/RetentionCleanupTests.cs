@@ -62,6 +62,34 @@ public sealed class RetentionCleanupTests
     }
 
     [Fact]
+    public async Task PhaseOneRetentionDoesNotDeleteSynchronizationIdentityCredentialOrQueue()
+    {
+        using var directory = new TemporaryDirectory();
+        var syncDirectory = StoragePaths.GetSynchronizationDirectory(directory.Path);
+        Directory.CreateDirectory(syncDirectory);
+        var identity = StoragePaths.GetInstallationIdentityPath(directory.Path);
+        var credential = StoragePaths.GetDeviceCredentialPath(directory.Path);
+        var queued = Path.Combine(StoragePaths.GetUploadQueueDirectory(directory.Path), "envelopes", "pending.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(queued)!);
+        await File.WriteAllTextAsync(identity, Guid.NewGuid().ToString("D"));
+        await File.WriteAllBytesAsync(credential, [1, 2, 3]);
+        await File.WriteAllTextAsync(queued, "pending");
+        var old = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(identity, old);
+        File.SetLastWriteTimeUtc(credential, old);
+        File.SetLastWriteTimeUtc(queued, old);
+
+        await new RetentionCleanup().CleanupAsync(
+            directory.Path,
+            DateTimeOffset.UtcNow,
+            CancellationToken.None);
+
+        Assert.True(File.Exists(identity));
+        Assert.True(File.Exists(credential));
+        Assert.True(File.Exists(queued));
+    }
+
+    [Fact]
     public async Task CleanupRefusesAWholeFilesystemVolume()
     {
         var cleanup = new RetentionCleanup();
