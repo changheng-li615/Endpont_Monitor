@@ -1,6 +1,6 @@
 # Xugar Endpoint Monitor
 
-Xugar Endpoint Monitor is a transparent, company-authorized endpoint management and monitoring platform for company-owned Windows laptops. The repository contains the stable Phase 1/1.2 visible Windows Agent, the Phase 2A central platform, and the Phase 2B optional Agent synchronization layer.
+Xugar Endpoint Monitor is a transparent, company-authorized endpoint management and monitoring platform for company-owned Windows laptops. The repository contains the stable Phase 1/1.2 Windows Agent, the Phase 2A central platform, the Phase 2B optional synchronization layer, and the Phase 2B.1 visible system-tray/background runtime.
 
 Xugar owns device health, approved periodic screenshots, complete process presence, and START/STOP events. ActivTrak remains the future source of truth for application/website activity, usage duration, active/passive status, productivity classification, and workforce analytics. Process presence must never be presented as employee activity or hours worked.
 
@@ -15,7 +15,7 @@ Xugar owns device health, approved periodic screenshots, complete process presen
 - Local file retention of 24 hours by default.
 - Resilient handling of inaccessible or short-lived processes.
 
-The Agent does not manage devices remotely, enforce application policy, install a Windows Service, start automatically, hide itself, capture command lines, keylog, capture the clipboard, collect user credentials, activate a microphone or webcam, or bypass UAC/secure desktop.
+The Agent does not manage devices remotely, enforce application policy, install a Windows Service, hide its process/tray presence, capture command lines, keylog, capture the clipboard, collect user credentials, activate a microphone or webcam, or bypass UAC/secure desktop.
 
 ## Phase 2A central-platform capabilities
 
@@ -40,6 +40,16 @@ The Agent does not manage devices remotely, enforce application policy, install 
 - The WPF window remains visible and shows enrollment, server, queue, upload, and policy status without exposing secrets.
 
 Phase 2B follows `LOCAL FIRST -> NETWORK SECOND`: canonical JSONL, derived CSV, and local PNG persistence complete before any eligible queue operation is created.
+
+## Phase 2B.1 Windows runtime
+
+- The Agent runs once in the normal interactive user session and always exposes a visible Xugar notification-area icon.
+- A normal launch opens the existing status window. `--startup` starts the same runtime without opening the window.
+- Closing the status window hides it; collection, heartbeat, policy refresh, and queue processing continue. Tray **Exit** performs the graceful process shutdown.
+- A per-user/session named synchronization object prevents duplicate monitoring loops. A second normal launch asks the primary instance to show its existing window.
+- Optional HKCU `Software\Microsoft\Windows\CurrentVersion\Run` registration launches the installed executable with `--startup` at sign-in without administrator elevation.
+- Non-secret server/runtime settings persist in `%LOCALAPPDATA%\Xugar\EndpointMonitor\config.json`. Installation identity, policy cache, queue, and the DPAPI `CurrentUser` device credential remain under `Data\sync`.
+- The bootstrap enrollment token is never written to persistent JSON. Once the DPAPI credential exists, ordinary startup does not require that token.
 
 ## Prerequisites
 
@@ -99,13 +109,39 @@ Google mode requires a real Auth.js secret and Google OAuth credentials, an appr
 
 `XUGAR_SCREENSHOT_STORAGE_ROOT` must be an absolute non-root directory outside `server/public`. Uploaded filenames are ignored. Run `npm run retention:cleanup` from `server`. The seven-day development default is not an approved production retention policy.
 
-## Run the visible agent
+## Run the Agent
 
 ```powershell
 dotnet run --project .\src\Xugar.Endpoint.Agent\Xugar.Endpoint.Agent.csproj
 ```
 
-Monitoring starts automatically after the window opens. The Stop and Start buttons are development controls. Closing the visible window stops both monitoring loops.
+Monitoring starts once when the process starts. A normal launch opens the status window and tray icon. Closing the window hides it without stopping monitoring; use tray **Open Xugar Monitor** to restore it and tray **Exit** to stop networking/monitoring loops and exit. Window minimize remains a normal minimize operation. The Stop and Start buttons control the runtime, not window visibility, and central policy remains authoritative.
+
+### Persistent pilot configuration and sign-in startup
+
+Run the published executable once with `--configure` to persist only non-secret settings and optionally register HKCU sign-in startup:
+
+```powershell
+& 'C:\Program Files\Xugar\EndpointMonitor\Xugar.Endpoint.Agent.exe' `
+  --configure `
+  --enable-sync `
+  --server-url 'https://monitor.example.com' `
+  --enable-startup
+```
+
+For local development, replace the executable path with the built Debug executable and use `http://localhost:3000`. That Debug registration is temporary test configuration, not a pilot installation path. The status window also provides a small **Start Xugar Endpoint Monitor when I sign in** checkbox that updates the same HKCU value idempotently.
+
+First enrollment still requires a temporary environment token for that one Agent launch:
+
+```powershell
+$env:XUGAR_ENROLLMENT_TOKEN = '<bootstrap-token-at-least-32-characters>'
+& 'C:\Program Files\Xugar\EndpointMonitor\Xugar.Endpoint.Agent.exe'
+Remove-Item Env:XUGAR_ENROLLMENT_TOKEN
+```
+
+After the server-issued device secret is DPAPI-protected, later `--startup` launches reuse it without the bootstrap token. The executable never accepts or writes an enrollment token through `--configure`.
+
+Configuration precedence is: explicit .NET command-line configuration keys, `XUGAR_` environment variables/aliases, persistent `config.json`, then committed `appsettings.json` defaults. Environment variables therefore remain useful for temporary development overrides without becoming a restart dependency.
 
 The committed settings in `src/Xugar.Endpoint.Agent/appsettings.json` are:
 
@@ -149,22 +185,24 @@ Configuration validation permits development intervals down to five seconds. Do 
 The default layout is:
 
 ```text
-%LOCALAPPDATA%\Xugar\EndpointMonitor\Data\
-  yyyy-MM-dd\
-    telemetry.jsonl
-    process-current.csv
-    process-events.csv
-    process-summary.csv
-    screenshots\
-      yyyyMMddTHHmmssfffZ_monitor-1.png
-  sync\
-    installation-id
-    device-credential.bin
-    policy-cache.json
-    queue\
-      envelopes\
-      payloads\
-      corrupt\
+%LOCALAPPDATA%\Xugar\EndpointMonitor\
+  config.json                 # non-secret runtime configuration
+  Data\
+    yyyy-MM-dd\
+      telemetry.jsonl
+      process-current.csv
+      process-events.csv
+      process-summary.csv
+      screenshots\
+        yyyyMMddTHHmmssfffZ_monitor-1.png
+    sync\
+      installation-id
+      device-credential.bin
+      policy-cache.json
+      queue\
+        envelopes\
+        payloads\
+        corrupt\
 ```
 
 The application refuses a filesystem volume root as its data root, confines generated paths to the configured root, does not follow reparse-point directories during cleanup, and tolerates files that cannot be deleted. Local development data and build artifacts are excluded by `.gitignore`.
@@ -191,7 +229,7 @@ Process events are sampling-based: a process that starts and stops entirely betw
 
 If a CSV file is locked or cannot be written, canonical JSONL collection continues and a local operational warning is recorded. Retention cleanup treats CSV reports consistently with other files under the configured data root.
 
-See [architecture](docs/ARCHITECTURE.md), [Phase 2B Agent synchronization](docs/PHASE2B_AGENT_SYNC.md), [privacy and data](docs/PRIVACY_AND_DATA.md), [Phase 2 API](docs/PHASE2_API.md), [security](docs/SECURITY.md), [operations](docs/OPERATIONS.md), [deployment](docs/DEPLOYMENT.md), [ActivTrak integration](docs/ACTIVTRAK_INTEGRATION.md), and the [manual test plan](docs/MANUAL_TEST_PLAN.md).
+See [architecture](docs/ARCHITECTURE.md), [Phase 2B Agent synchronization](docs/PHASE2B_AGENT_SYNC.md), [Phase 2B.1 background runtime](docs/PHASE2B1_BACKGROUND_RUNTIME.md), [privacy and data](docs/PRIVACY_AND_DATA.md), [Phase 2 API](docs/PHASE2_API.md), [security](docs/SECURITY.md), [operations](docs/OPERATIONS.md), [deployment](docs/DEPLOYMENT.md), [ActivTrak integration](docs/ACTIVTRAK_INTEGRATION.md), and the [manual test plan](docs/MANUAL_TEST_PLAN.md).
 
 ## Current limitations
 
@@ -200,7 +238,7 @@ See [architecture](docs/ARCHITECTURE.md), [Phase 2B Agent synchronization](docs/
 - Publisher/signature metadata is not collected in Phase 1.
 - Process categories and foreground samples are approximate reporting metadata, not security or exact usage evidence.
 - The Service project is an inert future placeholder and is neither installed nor used by the agent.
-- There is no tray icon, installer, code signing, autostart, ActivTrak webhook ingestion, remote control, or enforcement.
+- There is no MSI installer, code signing, ActivTrak webhook ingestion, remote control, watchdog/self-protection, or enforcement. A repeatable publish script and explicit per-user HKCU startup registration are provided for the pilot.
 - The current server contract has one approved monitoring schedule shared by process and screenshot policy toggles; it does not yet express independent schedule-window sets for each telemetry type.
 - DPAPI `CurrentUser` binds the device credential to the interactive Windows account. Moving synchronization ownership to a future Windows Service would require an explicit credential-migration design; the Service remains inert in Phase 2B.
 - Manager authentication is not production-ready without real Google Workspace OAuth credentials and an explicit Manager allow-list.

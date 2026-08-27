@@ -1,10 +1,10 @@
-using System.Diagnostics;
-using System.IO;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
 using Xugar.Endpoint.Agent.Services;
 using Xugar.Endpoint.Core.Models;
 using Xugar.Endpoint.Core.Services;
+using MediaColor = System.Windows.Media.Color;
 
 namespace Xugar.Endpoint.Agent;
 
@@ -12,29 +12,65 @@ public partial class MainWindow : Window
 {
     private readonly MonitoringCoordinator _coordinator;
     private readonly AgentSynchronizationCoordinator _synchronizationCoordinator;
-    private readonly string _dataRoot;
-    private bool _loaded;
+    private readonly AgentLifecycleState _lifecycle;
+    private readonly DataFolderLauncher _dataFolderLauncher;
+    private readonly StartupRegistrationManager _startupRegistration;
+    private readonly FileAgentConfigurationStore _configurationStore;
+    private readonly string? _executablePath = Environment.ProcessPath;
+    private bool _allowClose;
 
     public MainWindow(
         MonitoringCoordinator coordinator,
         AgentSynchronizationCoordinator synchronizationCoordinator,
-        AgentConfiguration configuration)
+        AgentConfiguration configuration,
+        AgentLifecycleState lifecycle,
+        DataFolderLauncher dataFolderLauncher,
+        StartupRegistrationManager startupRegistration,
+        FileAgentConfigurationStore configurationStore)
     {
         _coordinator = coordinator;
         _synchronizationCoordinator = synchronizationCoordinator;
-        _dataRoot = StoragePaths.ResolveDataRoot(configuration.Storage.RootPath);
+        _lifecycle = lifecycle;
+        _dataFolderLauncher = dataFolderLauncher;
+        _startupRegistration = startupRegistration;
+        _configurationStore = configurationStore;
         InitializeComponent();
 
         ScreenshotIntervalText.Text = $"{configuration.Monitoring.ScreenshotIntervalSeconds} seconds";
         ProcessIntervalText.Text = $"{configuration.Monitoring.ProcessIntervalSeconds} seconds";
-        DataDirectoryText.Text = _dataRoot;
+        DataDirectoryText.Text = _dataFolderLauncher.DataRoot;
         ApplySynchronizationProgress(_synchronizationCoordinator.CurrentProgress);
         SetRunningState(isRunning: false);
+        RefreshStartupState();
+        RefreshRuntimeMode();
 
         _coordinator.ProgressChanged += Coordinator_ProgressChanged;
         _synchronizationCoordinator.ProgressChanged += SynchronizationCoordinator_ProgressChanged;
-        Loaded += MainWindow_Loaded;
-        Closed += MainWindow_Closed;
+        IsVisibleChanged += MainWindow_IsVisibleChanged;
+    }
+
+    public void PrepareForApplicationExit() => _allowClose = true;
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!_allowClose && !_lifecycle.ExitRequested)
+        {
+            e.Cancel = true;
+            _lifecycle.HideWindow();
+            Hide();
+            RefreshRuntimeMode();
+            return;
+        }
+
+        base.OnClosing(e);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _coordinator.ProgressChanged -= Coordinator_ProgressChanged;
+        _synchronizationCoordinator.ProgressChanged -= SynchronizationCoordinator_ProgressChanged;
+        IsVisibleChanged -= MainWindow_IsVisibleChanged;
+        base.OnClosed(e);
     }
 
     private void SynchronizationCoordinator_ProgressChanged(
@@ -42,17 +78,6 @@ public partial class MainWindow : Window
         SynchronizationProgress progress)
     {
         _ = Dispatcher.InvokeAsync(() => ApplySynchronizationProgress(progress));
-    }
-
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
-    {
-        if (_loaded)
-        {
-            return;
-        }
-
-        _loaded = true;
-        await StartMonitoringAsync();
     }
 
     private async void StartButton_Click(object sender, RoutedEventArgs e)
@@ -77,23 +102,41 @@ public partial class MainWindow : Window
 
     private void OpenDataFolderButton_Click(object sender, RoutedEventArgs e)
     {
+        var error = _dataFolderLauncher.TryOpen();
+        if (error is not null)
+        {
+            DetailText.Text = error;
+        }
+    }
+
+    private async void StartupCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (_executablePath is null)
+        {
+            StartupCheckBox.IsChecked = false;
+            StartupCheckBox.IsEnabled = false;
+            DetailText.Text = "The Agent executable path is unavailable; Windows startup could not be changed.";
+            return;
+        }
+
+        StartupCheckBox.IsEnabled = false;
+        var enabled = StartupCheckBox.IsChecked == true;
         try
         {
-            Directory.CreateDirectory(_dataRoot);
-            using var explorer = Process.Start(new ProcessStartInfo
-            {
-                FileName = _dataRoot,
-                UseShellExecute = true
-            });
-
-            if (explorer is null)
-            {
-                DetailText.Text = "Windows could not open the local data directory.";
-            }
+            _startupRegistration.SetEnabled(enabled, _executablePath);
+            await _configurationStore.UpdateStartupEnabledAsync(enabled, CancellationToken.None);
+            DetailText.Text = enabled
+                ? "Windows sign-in startup is enabled for this user. The tray will appear without opening this window."
+                : "Windows sign-in startup is disabled for this user.";
         }
         catch (Exception exception)
         {
-            DetailText.Text = $"Could not open the local data directory: {exception.Message}";
+            RefreshStartupState();
+            DetailText.Text = $"Windows sign-in startup could not be changed: {exception.Message}";
+        }
+        finally
+        {
+            StartupCheckBox.IsEnabled = _executablePath is not null;
         }
     }
 
@@ -101,8 +144,8 @@ public partial class MainWindow : Window
     {
         StartButton.IsEnabled = false;
         StopButton.IsEnabled = false;
-        StatusText.Text = "Starting monitoring…";
-        StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(228, 158, 35));
+        StatusText.Text = "Starting monitoring...";
+        StatusIndicator.Fill = new SolidColorBrush(MediaColor.FromRgb(228, 158, 35));
 
         try
         {
@@ -140,22 +183,16 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = !isRunning;
         StopButton.IsEnabled = isRunning;
         StatusIndicator.Fill = new SolidColorBrush(
-            isRunning ? Color.FromRgb(31, 157, 85) : Color.FromRgb(138, 153, 168));
+            isRunning ? MediaColor.FromRgb(31, 157, 85) : MediaColor.FromRgb(138, 153, 168));
     }
 
     private void ShowFailure(string message)
     {
         StatusText.Text = "Monitoring error";
         DetailText.Text = message;
-        StatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(199, 62, 62));
+        StatusIndicator.Fill = new SolidColorBrush(MediaColor.FromRgb(199, 62, 62));
         StartButton.IsEnabled = true;
         StopButton.IsEnabled = false;
-    }
-
-    private void MainWindow_Closed(object? sender, EventArgs e)
-    {
-        _coordinator.ProgressChanged -= Coordinator_ProgressChanged;
-        _synchronizationCoordinator.ProgressChanged -= SynchronizationCoordinator_ProgressChanged;
     }
 
     private void ApplySynchronizationProgress(SynchronizationProgress progress)
@@ -166,6 +203,46 @@ public partial class MainWindow : Window
         SyncPolicyRefreshText.Text = FormatOptionalTime(progress.LastPolicyRefreshUtc);
         SyncQueueText.Text = $"{progress.PendingQueueItems} items / {FormatBytes(progress.PendingQueueBytes)}";
         SyncPolicyText.Text = progress.PolicyStatus;
+    }
+
+    private void RefreshStartupState()
+    {
+        if (_executablePath is null)
+        {
+            StartupCheckBox.IsChecked = false;
+            StartupCheckBox.IsEnabled = false;
+            return;
+        }
+
+        try
+        {
+            StartupCheckBox.IsChecked = _startupRegistration.IsEnabled(_executablePath);
+            StartupCheckBox.ToolTip = StartupRegistrationManager.BuildCommand(_executablePath);
+        }
+        catch
+        {
+            StartupCheckBox.IsChecked = false;
+        }
+    }
+
+    private void MainWindow_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible)
+        {
+            _lifecycle.ShowWindow();
+        }
+        else if (!_lifecycle.ExitRequested)
+        {
+            _lifecycle.HideWindow();
+        }
+        RefreshRuntimeMode();
+    }
+
+    private void RefreshRuntimeMode()
+    {
+        RuntimeModeText.Text = _lifecycle.WindowVisible
+            ? "Runtime: Window open"
+            : "Runtime: Background / tray";
     }
 
     private static string FormatLocalTime(DateTimeOffset timestampUtc) =>

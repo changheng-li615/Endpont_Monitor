@@ -2,7 +2,7 @@
 
 ## Boundary and data flow
 
-Phase 2B connects only the visible user-session Xugar Agent to the Xugar central platform. ActivTrak, remote control, enforcement, automatic process actions, hidden monitoring, and Windows Service screenshot capture are outside this phase.
+Phase 2B connects only the visible user-session Xugar Agent to the Xugar central platform. Phase 2B.1 adds a visible tray/background runtime and current-user sign-in launch around that same synchronization layer. ActivTrak, remote control, enforcement, automatic process actions, hidden monitoring, and Windows Service screenshot capture are outside this phase.
 
 ```text
 capture/sample
@@ -21,6 +21,8 @@ Network or server failure cannot turn a successful local write into a failed mon
 When no credential exists, `DeviceEnrollmentService` sends installation/device metadata to `POST /api/v1/devices/enroll` with the bootstrap enrollment token. A valid existing credential prevents enrollment on every startup. Successful response data is validated and persisted before use.
 
 `FileDeviceCredentialStore` serializes only device ID/secret in memory, passes it through `WindowsDpapiDeviceCredentialProtector`, clears temporary plaintext/protected buffers where practical, and atomically writes opaque bytes to `Data\sync\device-credential.bin`. DPAPI uses `DataProtectionScope.CurrentUser`, matching the interactive Agent's ownership. The bootstrap token, device secret, and authorization header are never written to JSONL, CSV, UI, or logs. A corrupt credential is quarantined and can be recovered only through authorized enrollment.
+
+Phase 2B.1 startup first reads this protected credential. If it is valid, `DeviceEnrollmentService` returns it before inspecting `ServerSync:EnrollmentToken`, so restart does not require the bootstrap token and cannot create another enrollment record. If both credential and token are absent, the Agent remains visibly not enrolled/configuration-degraded and uses bounded retry timing rather than an enrollment storm.
 
 ## Configuration
 
@@ -41,6 +43,8 @@ Committed synchronization defaults are safe and disabled:
 | `XUGAR_QUEUE_MAX_AGE_HOURS` | `ServerSync:QueueMaxAgeHours` | 168 |
 
 .NET double-underscore environment keys remain supported. Non-loopback HTTP is rejected even when the development flag is true. Production configuration must use HTTPS. Certificate validation is never disabled.
+
+Phase 2B.1 persists the non-secret counterparts of these settings in `%LOCALAPPDATA%\Xugar\EndpointMonitor\config.json`. Precedence is command line, environment/aliases, persistent JSON, committed defaults. `EnrollmentToken` is deliberately absent from the persistent schema. Use `Xugar.Endpoint.Agent.exe --configure --enable-sync --server-url <url> --enable-startup` for one-time pilot setup, then supply `XUGAR_ENROLLMENT_TOKEN` only to the first enrollment launch.
 
 ## Policy and schedule
 
@@ -77,9 +81,9 @@ Retryable connection/timeout/408/429/5xx failures use exponential backoff with Â
 
 Process and Agent events carry `clientEventId`; screenshots carry `captureId`. Phase 2B adds nullable server columns and per-device unique indexes through the tracked `20260826030000_phase2b_idempotency` migration. Existing Phase 2A clients remain compatible because IDs are optional. New Agent retries reuse the ID stored in the queue payload/envelope, preventing duplicate history.
 
-## Visible status
+## Visible status and background lifecycle
 
-The WPF window reports whether synchronization is enabled, enrollment state, server connection/authentication state, last heartbeat/upload/policy refresh, queue item/byte totals, and current policy status. It never renders the enrollment token, device secret, authorization header, database credentials, or screenshot content.
+The tray icon remains visible while the Agent process runs. A normal launch shows the WPF status window; `--startup` begins the same coordinator without showing it. Window Close hides the window while heartbeat, policy refresh, capture, and queue loops continue. Tray Open restores the existing window and tray Exit performs graceful cancellation. The window reports whether synchronization is enabled, enrollment state, server connection/authentication state, last heartbeat/upload/policy refresh, queue item/byte totals, and current policy status. It never renders the enrollment token, device secret, authorization header, database credentials, or screenshot content.
 
 ## Test database bootstrap
 

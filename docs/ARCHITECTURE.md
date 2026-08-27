@@ -1,11 +1,11 @@
-# Platform Architecture — Phase 2B
+# Platform Architecture — Phase 2B.1
 
 ## Current phase boundary
 
-Phase 2B adds optional synchronization from the visible Agent to the Phase 2A server. The Phase 1/1.2 local JSONL canonical record, derived CSV reports, 300-second standalone screenshot default, screenshot protections, and local retention remain intact.
+Phase 2B.1 adds Windows sign-in startup and a visible system-tray/background lifecycle around the Phase 2B Agent. The Phase 1/1.2 local JSONL canonical record, derived CSV reports, 300-second standalone screenshot default, screenshot protections, local retention, Phase 2B network contracts, and central-policy behavior remain intact.
 
 ```text
-Visible Windows Agent
+Visible user-session Windows Agent (tray always present)
   -> local JSONL + CSV + PNG (always first)
   -> bounded persistent queue
   -> authenticated Phase 2A APIs
@@ -34,10 +34,12 @@ Manager authorization is denied by default. Development mode requires two explic
 
 ## Windows Agent boundaries
 
-The application remains a normal, visible WPF process in the signed-in user's Windows session. Screenshot capture and Phase 2B networking stay in that process because a future Windows Service must not attempt desktop capture across session boundaries.
+The application remains a normal, identifiable WPF process in the signed-in user's Windows session. A visible `NotifyIcon` persists while the status window is hidden. Screenshot capture and Phase 2B networking stay in that process because a future Windows Service must not attempt desktop capture across session boundaries.
 
 ```text
-Visible WPF window
+User-session Agent process
+  -> visible tray icon
+  -> optional WPF status window (close hides; tray Exit shuts down)
   -> MonitoringCoordinator
        -> process loop -> IProcessSnapshotProvider -> JSONL
                        -> IProcessReportWriter -> derived daily CSV
@@ -49,7 +51,13 @@ Visible WPF window
             -> file-backed upload queue -> typed HTTP client
 ```
 
-Each monitoring loop executes one operation at a time and uses cancellable delays. When synchronization is disabled, committed Phase 1 intervals apply unchanged. When enabled, a valid cached central policy supplies intervals and schedule permission. Missing/expired policy denies screenshots; local process snapshots continue safely but are not synchronized until policy is valid. Start/Stop and application shutdown cancel monitoring and synchronization loops.
+Each monitoring loop executes one operation at a time and uses cancellable delays. `App` starts `MonitoringCoordinator` once, independently of whether `MainWindow` is visible. When synchronization is disabled, committed Phase 1 intervals apply unchanged. When enabled, a valid cached central policy supplies intervals and schedule permission. Missing/expired policy denies screenshots; local process snapshots continue safely but are not synchronized until policy is valid. Development Start/Stop and explicit tray Exit cancel monitoring and synchronization loops; window Close only hides the status surface.
+
+## Phase 2B.1 process lifecycle
+
+`ShutdownMode.OnExplicitShutdown` prevents WPF from treating a hidden status window as process ownership. A normal launch shows the existing window; `--startup` leaves it unshown while the tray remains visible. Close is intercepted and converted to `Hide()`. Tray/open or a second normal launch activates the same window. Tray Exit cancels the coordinator, waits for bounded queue/network shutdown, disposes the tray icon and host, releases the single-instance objects, and then exits.
+
+A named per-user/session semaphore prevents a second runtime. An auto-reset named activation event lets a duplicate normal launch ask the primary process to open its status window. A duplicate `--startup` launch exits without opening the window. No watchdog, service, hidden process, or anti-termination mechanism exists.
 
 ## Projects
 
@@ -72,13 +80,13 @@ Platform-light contracts and testable logic:
 
 Windows/WPF implementation:
 
-- visible main window and development Start/Stop controls;
+- visible tray icon, optional main status window, and development Start/Stop controls;
 - .NET Generic Host configuration and dependency injection;
 - resilient `System.Diagnostics.Process` enumeration;
 - foreground-window identification;
 - normal-input-desktop check before screenshots;
 - Win32 monitor enumeration and GDI screen capture encoded as PNG;
-- orchestration, UI progress, and operational events.
+- HKCU sign-in registration, single-instance activation, orchestration, UI progress, and operational events.
 - Windows DPAPI `CurrentUser` credential protection and compact synchronization status.
 
 The executable manifest requests `asInvoker`, disables UI access, and declares per-monitor DPI awareness. It does not request elevation.
@@ -93,7 +101,9 @@ xUnit tests cover Phase 1 regression plus identity, credential abstraction, API 
 
 ## Configuration
 
-`appsettings.json` contains the committed policy defaults. The host also accepts command-line and environment configuration. Environment overrides intended for development use the `XUGAR_` prefix and .NET's double-underscore nesting convention, for example `XUGAR_Monitoring__ScreenshotIntervalSeconds=15`.
+`appsettings.json` contains the committed policy defaults. `%LOCALAPPDATA%\Xugar\EndpointMonitor\config.json` persists only non-secret server/runtime and startup preferences. The host then accepts environment and command-line overrides. Effective precedence is command line, `XUGAR_` environment values/aliases, persistent JSON, committed defaults. Environment overrides intended for development use the `XUGAR_` prefix and .NET's double-underscore nesting convention, for example `XUGAR_Monitoring__ScreenshotIntervalSeconds=15`.
+
+Persistent JSON deliberately has no enrollment-token, device-secret, authorization-header, or credential fields. Unknown JSON members are rejected; malformed/secret-expanding files are quarantined and safe disabled defaults are used. Installation ID, DPAPI `CurrentUser` credential, policy cache, and bounded queue retain their existing `Data\sync` locations and lifecycles.
 
 Validated ranges are:
 

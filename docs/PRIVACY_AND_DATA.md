@@ -1,4 +1,4 @@
-# Privacy and Data — Phase 2B Boundary
+# Privacy and Data — Phase 2B.1 Boundary
 
 ## Source-of-truth separation
 
@@ -15,7 +15,7 @@ Xugar must not derive productivity scores, employee activity time, or hours work
 
 ## Transparency
 
-The MVP is visible. It runs as a normal user application titled **Xugar Endpoint Monitor**, displays its current state and collection intervals, and provides development Stop and Start controls. It has no stealth mode, service installation, autostart persistence, or hidden tray-only behavior.
+The Agent is transparent. It runs as a normal user application titled **Xugar Endpoint Monitor**, keeps a visible Xugar system-tray icon whenever its status window is hidden, displays its current state and collection intervals, and provides development Stop and Start controls. Phase 2B.1 optionally registers explicit current-user sign-in startup; it is not a stealth mode, Windows Service, watchdog, hidden process, or anti-termination mechanism.
 
 Use is intended only on company-owned Windows laptops with company authorization, an approved employee policy, and appropriate notice. Technical implementation does not replace legal, HR, security, or management review.
 
@@ -65,7 +65,7 @@ The Agent always stores Phase 1 data locally first. Server synchronization is op
 
 PNG images are stored separately from JSONL; screenshot pixel data is never logged as text. The application does not add application-level encryption in Phase 1 and relies on Windows account permissions and any organization-managed full-disk protection. Access controls and encryption requirements must be reviewed before wider use.
 
-Retention cleanup defaults to 24 hours, skips filesystem links/reparse points, refuses a whole filesystem root, and tolerates inaccessible files. A file in use or otherwise inaccessible can survive past its cutoff until a later cleanup succeeds. Identity, DPAPI credential, policy cache, and bounded queue live under `sync`; Phase 1 retention excludes that subtree and the queue enforces its own item/byte/age limits.
+Retention cleanup defaults to 24 hours, skips filesystem links/reparse points, refuses a whole filesystem root, and tolerates inaccessible files. A file in use or otherwise inaccessible can survive past its cutoff until a later cleanup succeeds. Identity, DPAPI credential, policy cache, and bounded queue live under `sync`; Phase 1 retention excludes that subtree and the queue enforces its own item/byte/age limits. Non-secret runtime settings live separately at `%LOCALAPPDATA%\Xugar\EndpointMonitor\config.json`. That JSON schema cannot store the enrollment token or device secret.
 
 When explicitly enabled, the Phase 2B Agent enrolls and synchronizes approved heartbeats, current processes, START/STOP events, screenshots, and bounded health events to the Phase 2A server. PostgreSQL stores device metadata, hash-only server credential verifiers, heartbeats, current processes, lifecycle/Agent events, screenshot metadata, policy, normalized ActivTrak placeholders, and Manager audit records. Screenshot images remain in private configured filesystem storage, never PostgreSQL or `public`.
 

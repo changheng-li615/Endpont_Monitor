@@ -39,6 +39,20 @@ public sealed class DeviceEnrollmentServiceTests
     }
 
     [Fact]
+    public async Task ExistingProtectedCredentialDoesNotRequireBootstrapTokenAfterRestart()
+    {
+        var existing = new DeviceCredential(Guid.NewGuid(), "existing-dpapi-credential");
+        var store = new MemoryCredentialStore { Credential = existing };
+        var server = new StubServerClient();
+
+        var result = await CreateService(Guid.NewGuid(), store, server, string.Empty)
+            .EnsureEnrolledAsync(CancellationToken.None);
+
+        Assert.Equal(existing, result);
+        Assert.Equal(0, server.EnrollmentCalls);
+    }
+
+    [Fact]
     public async Task MissingTokenAndServerFailureAreReportedWithoutCreatingCredential()
     {
         var store = new MemoryCredentialStore();

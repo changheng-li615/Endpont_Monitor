@@ -24,7 +24,7 @@ Use this evidence format for each executed check:
 5. Verify monitoring starts automatically.
 6. Select **Stop**. Wait longer than both configured intervals and verify timestamps/files do not advance.
 7. Select **Start** and verify capture resumes.
-8. Close the window and verify the agent process exits; confirm no service or hidden background process remains.
+8. Close the window and verify the window hides while the Agent process and visible tray icon remain. Reopen the same window from the tray, then use tray **Exit** and verify the process terminates.
 
 ## Local telemetry and process resilience
 
@@ -71,9 +71,38 @@ Use this evidence format for each executed check:
 
 ## Cleanup
 
-1. Close the agent.
+1. Exit the Agent from the tray menu. Closing only the WPF window intentionally leaves the transparent background runtime active.
 2. Remove the temporary environment override: `Remove-Item Env:XUGAR_Monitoring__ScreenshotIntervalSeconds -ErrorAction SilentlyContinue`.
 3. Retain test evidence only according to the approved prototype policy; screenshots may contain sensitive information.
+
+## Phase 2B.1 Windows background runtime and restart acceptance
+
+Run these checks against the complete published `win-x64` directory copied to an approved stable pilot path. For development-only checks, a Debug executable path may be registered temporarily, but that is not pilot deployment evidence. Use the normal GCPW standard-user account for runtime tests. Record Task Manager process counts, tray/window observations, sanitized local timestamps, and central device/heartbeat identifiers; never record an enrollment token or device-secret content.
+
+| Test ID | Setup | Steps | Expected | Actual | PASS/FAIL | Evidence | Notes |
+|---|---|---|---|---|---|---|---|
+| P2B1-A Normal launch | Agent not running | Double-click `Xugar.Endpoint.Agent.exe` | One Agent process starts; status window and visible Xugar tray icon appear; monitoring starts once | | | | Window is expected on manual launch |
+| P2B1-B Close window | P2B1-A running and synchronized | Click the WPF window X; observe Task Manager, tray, central heartbeat/process/screenshot timestamps | Window hides; same Agent process/tray remain; heartbeat, process sync, queue worker, and policy-eligible screenshots continue | | | | Close is not Exit |
+| P2B1-C Reopen | Window hidden after P2B1-B | Select tray **Open Xugar Monitor**, then single-click and double-click the icon | Existing window returns to foreground; same process, enrollment, queue, and advancing timestamps remain; no runtime is recreated | | | | Either icon click must open |
+| P2B1-D Duplicate launch | Agent already running normally or via `--startup` | Double-click the same executable; repeat once | Only one Agent process/runtime remains and the existing window opens; no duplicate capture/heartbeat loops | | | | Check process count and cadence |
+| P2B1-E Explicit Exit | Agent running with window shown or hidden | Select tray **Exit**; inspect process, tray, local files, and pending queue | Loops cancel cleanly, safe writes finish, queue remains valid, tray disappears, and Agent process terminates | | | | No immediate watchdog respawn |
+| P2B1-F Auto-start | Published Agent configured with `--enable-startup` | Confirm HKCU Run value, restart Windows, sign in through GCPW | Agent starts once with `--startup`; no WPF window appears; visible tray icon appears | | | | Run value must use stable quoted path |
+| P2B1-G No PowerShell dependency | Persistent sync URL/enabled setting and prior enrollment exist | Close all PowerShell windows before P2B1-F; after sign-in run no setup commands | Sync remains enabled, server URL is known, same central device connects, and heartbeat resumes | | | | Inspect `config.json` only for non-secrets |
+| P2B1-H No enrollment-token dependency | Successful enrollment exists; `XUGAR_ENROLLMENT_TOKEN` absent | Exit and restart Agent, then restart Windows | Existing DPAPI credential and installation ID are reused; no re-enrollment or second device row occurs | | | | Do not open/decrypt credential as evidence |
+| P2B1-I Central policy | Agent running only in tray | Change/assign approved policy and wait for refresh | Policy status/intervals update; collection follows toggles/schedule; tray/background mode does not bypass policy | | | | Heartbeat may remain active |
+| P2B1-J Server offline | Agent synchronized and hidden to tray | Stop server, observe local telemetry/queue, restart server, wait through backoff | Agent/tray remain; local canonical records continue; bounded eligible queue grows, reconnects, and drains without duplicates | | | | Opening/closing UI has no effect |
+| P2B1-K Standard user | GCPW standard-user session | Repeat A-J runtime actions without elevation | Normal launch, HKCU startup, capture, sync, tray interaction, and Exit require no administrator password or UAC | | | | Authorized installation may be separate |
+
+### Required X-02 restart evidence
+
+The Phase 2B.1 acceptance gate is a real restart, not merely an Agent process restart:
+
+1. Confirm X-02 is enrolled and synchronized, persistent configuration enables sync and points to the approved server, and HKCU startup points to the stable published executable with `--startup`.
+2. Remove the bootstrap-token environment variable, close all PowerShell windows, and record the existing installation ID and central device ID without recording secret material.
+3. Restart Windows and sign in through GCPW as the same standard user. Do not run PowerShell setup or enter administrator credentials.
+4. Verify no main window opens, a visible Xugar tray icon appears, and exactly one Agent process runs.
+5. Verify the same installation/device IDs remain, heartbeat and policy refresh resume, process monitoring resumes, and screenshots resume only when central policy and the normal unlocked desktop allow them.
+6. Verify no second X-02 device record was created. Record PASS/FAIL and sanitized timestamps/IDs in the evidence table.
 
 ## Phase 2A central server manual checks
 

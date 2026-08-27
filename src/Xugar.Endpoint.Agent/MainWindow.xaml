@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Xugar Endpoint Monitor"
-        Height="760"
+        Height="800"
         Width="760"
-        MinHeight="700"
+        MinHeight="720"
         MinWidth="680"
         WindowStartupLocation="CenterScreen"
         Background="#F4F7FB">
@@ -31,7 +31,7 @@
             <TextBlock Margin="0,7,0,0"
                        FontSize="14"
                        Foreground="#4F6074"
-                       Text="Visible Windows monitoring with optional Xugar server synchronization" />
+                       Text="Visible Windows monitoring with a persistent system-tray status" />
         </StackPanel>
 
         <Border Grid.Row="2"
@@ -51,7 +51,7 @@
                            FontSize="16"
                            FontWeight="SemiBold"
                            Foreground="#263746"
-                           Text="Starting…" />
+                           Text="Starting..." />
             </DockPanel>
         </Border>
 
@@ -149,7 +149,7 @@
                        MaxWidth="440"
                        VerticalAlignment="Center"
                        Foreground="#526477"
-                       Text="Monitoring starts automatically while this window is visible."
+                       Text="Monitoring continues when this status window is hidden."
                        TextWrapping="Wrap" />
             <Button x:Name="StopButton"
                     Width="96"
@@ -172,5 +172,25 @@
                     Content="Start"
                     DockPanel.Dock="Right" />
         </DockPanel>
+
+        <Border Grid.Row="10"
+                Padding="14,10"
+                Background="#EAF1F8"
+                BorderBrush="#D9E2EC"
+                BorderThickness="1"
+                CornerRadius="8">
+            <DockPanel>
+                <CheckBox x:Name="StartupCheckBox"
+                          VerticalAlignment="Center"
+                          Click="StartupCheckBox_Click"
+                          Content="Start Xugar Endpoint Monitor when I sign in" />
+                <TextBlock x:Name="RuntimeModeText"
+                           Margin="20,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="#526477"
+                           Text="Runtime: Window open"
+                           DockPanel.Dock="Right" />
+            </DockPanel>
+        </Border>
     </Grid>
 </Window>

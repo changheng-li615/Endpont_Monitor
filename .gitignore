@@ -3,6 +3,7 @@
 **/obj/
 .vs/
 TestResults/
+artifacts/
 
 # Local SDK/NuGet state used by sandboxed development
 .artifacts/
